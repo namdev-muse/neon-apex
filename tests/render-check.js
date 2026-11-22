@@ -1,4 +1,4 @@
-// Neon Apex v0.3.1 — headless browser render check.
+// Neon Apex v0.4.0 — headless browser render check.
 // Serves the game dir over local HTTP, loads it in a headless
 // browser, and asserts the M1 core, by hook and by eye:
 //   - the menu renders over a LIVE 3D scene (the attract demo
@@ -135,8 +135,8 @@ try {
   }
 
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.3.1') throw new Error(`expected version 0.3.1, got ${version}`);
-  console.log('render-check: game module initialised, version 0.3.1');
+  if (version !== '0.4.0') throw new Error(`expected version 0.4.0, got ${version}`);
+  console.log('render-check: game module initialised, version 0.4.0');
 
   // WebGL context exists and the canvas is on screen.
   const gl = await page.evaluate(() => {
@@ -152,7 +152,7 @@ try {
   // text anywhere the player can see. Track 1 unlocked, track 2 locked.
   const menuText = await page.textContent('#menu');
   if (!menuText.includes('NEON APEX')) throw new Error('menu title missing');
-  if (menuText.includes('v0.3.1') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
+  if (menuText.includes('v0.4.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
     throw new Error('menu shows version/engine text — it must live in the README only');
   }
   const playClass = await page.getAttribute('#btn-play', 'class');
@@ -171,6 +171,27 @@ try {
   if (lockedCards !== 11) throw new Error(`expected 11 locked track cards on a fresh save, got ${lockedCards}`);
   console.log('render-check: menu renders — live 3D behind it, no version text, Play primary, 12 tracks, track 1 unlocked only');
 
+  // M4: the mode toggle is on the menu (Normal active by default),
+  // the orb-bank line is present, and switching to Time Attack
+  // re-labels the menu (best lines show TA bests, the hint explains
+  // the clock). No dead buttons: both modes are selectable.
+  const modeNormal = await page.getAttribute('#btn-mode-normal', 'class');
+  const modeTa = await page.getAttribute('#btn-mode-ta', 'class');
+  if (!modeNormal || !modeNormal.includes('active')) throw new Error('Normal should be the active mode on a fresh menu');
+  if (modeTa && modeTa.includes('active')) throw new Error('Time Attack should not be active on a fresh menu');
+  const bankText = await page.textContent('#menu-bank');
+  if (!bankText || !bankText.includes('Orbs banked')) throw new Error(`orb-bank line missing from the menu: ${bankText}`);
+  await page.click('#btn-mode-ta');
+  const modeAfter = await page.evaluate(() => window.__apex.mode());
+  if (modeAfter !== 'ta') throw new Error(`mode toggle did not switch to Time Attack (mode ${modeAfter})`);
+  const taHint = await page.textContent('#mode-hint');
+  if (!taHint || !taHint.includes('clock')) throw new Error(`Time Attack hint should explain the clock: ${taHint}`);
+  const taMenuBest = await page.textContent('#menu-best');
+  if (!taMenuBest || !taMenuBest.includes('Time Attack')) throw new Error(`menu best line should mention Time Attack in TA mode: ${taMenuBest}`);
+  await page.click('#btn-mode-normal');
+  if ((await page.evaluate(() => window.__apex.mode())) !== 'normal') throw new Error('mode toggle did not switch back to Normal');
+  console.log('render-check: M4 mode toggle works — Normal/TA switch, TA hint + best line, orb-bank line present');
+
   // The attract demo runs behind the menu: the demo runner advances.
   const demo0 = await page.evaluate(() => window.__apex.info());
   if (!demo0) throw new Error('no demo info in the menu phase');
@@ -184,7 +205,7 @@ try {
   // Menu screenshot for the by-eye check.
   fs.mkdirSync(SHOTS_DIR, { recursive: true });
   await page.waitForTimeout(1200); // let the menu pop-in finish + the demo runner run in
-  await page.screenshot({ path: path.join(SHOTS_DIR, 'menu-1280x720.png') });
+  await page.screenshot({ path: path.join(SHOTS_DIR, 'menu-1280x720.png'), timeout: 60000 }); // 60s: the font-load wait can stall under swiftshader (flaked once at 30s)
   console.log(`render-check: menu screenshot saved to ${SHOTS_DIR}/menu-1280x720.png — INSPECT BY EYE (live 3D scene, no clipped cards)`);
 
   // PLAY starts track 1 with the HUD.
@@ -267,14 +288,14 @@ try {
 
   // The canvas must actually update during a run (a frozen render
   // loop still leaves sim state looking alive).
-  const shotA = await page.screenshot();
+  const shotA = await page.screenshot({ timeout: 60000 });
   await page.waitForTimeout(1000);
-  const shotB = await page.screenshot();
+  const shotB = await page.screenshot({ timeout: 60000 });
   if (shotA.equals(shotB)) throw new Error('canvas did not change between two screenshots during a run — the render loop may be frozen');
   console.log('render-check: canvas updates during a run (two screenshots differ)');
 
   // Gameplay screenshot for the by-eye check.
-  await page.screenshot({ path: path.join(SHOTS_DIR, 'gameplay-1280x720.png') });
+  await page.screenshot({ path: path.join(SHOTS_DIR, 'gameplay-1280x720.png'), timeout: 60000 });
   console.log(`render-check: gameplay screenshot saved to ${SHOTS_DIR}/gameplay-1280x720.png — INSPECT BY EYE (3D depth, platforms, HUD)`);
 
   // The autopilot (decision bot) clears track 1: the core loop works
@@ -319,15 +340,89 @@ try {
     throw new Error(`best time should be saved for track 1: ${JSON.stringify(saved.best)}`);
   }
   console.log(`render-check: track clear — best time ${saved.best[1].time.toFixed(1)}s saved for track 1`);
+  // M4: the clear carries a medal (gold = beat par 18s) and the
+  // orbs bank — the complete screen says which medal, and the save
+  // holds the banked total.
+  const medal = saved.best[1].medal;
+  if (!['gold', 'silver', 'bronze'].includes(medal)) throw new Error(`clear should carry a medal, got: ${medal}`);
+  if (!(saved.totalOrbs > 0)) throw new Error(`orbs should bank on a clear, totalOrbs ${saved.totalOrbs}`);
+  const medalText = await page.textContent('#complete-medal');
+  if (!medalText || !/medal/i.test(medalText)) throw new Error(`complete screen should name the medal: ${medalText}`);
+  console.log(`render-check: M4 medal ${medal} on the clear screen, ${saved.totalOrbs} orbs banked`);
   // The gates opened: clearing track 1 unlocks track 2.
   const unlocks1 = await page.evaluate(() => window.__apex.unlocks());
   if (!unlocks1[2]) throw new Error(`clearing track 1 should unlock track 2: ${JSON.stringify(unlocks1)}`);
   console.log('render-check: gates opened — track 2 unlocked after clearing track 1');
 
-  // Back to the menu, then a fresh track-1 run with no input:
-  // the runner must fall into the void and reset to a checkpoint.
+  // M4: Time Attack, end to end in the browser. Back to the menu,
+  // switch to TA, and Play starts a countdown run: the HUD shows
+  // the clock (not elapsed time) and it ticks down.
   await page.click('#btn-menu-complete');
   await page.waitForFunction(() => window.__apex.state.phase === 'menu', null, { timeout: 5000 });
+  await page.click('#btn-mode-ta');
+  await page.click('#btn-play');
+  await page.waitForFunction(() => window.__apex.state.phase === 'run', null, { timeout: 5000 });
+  const ta0 = await page.evaluate(() => window.__apex.info());
+  if (ta0.mode !== 'ta' || ta0.clock === null) throw new Error(`expected a Time Attack run with a clock, got mode ${ta0.mode} clock ${ta0.clock}`);
+  const taBudget = await page.evaluate(() => window.__apex.tracks()[0].taBudget);
+  if (Math.abs(ta0.clock - taBudget) > 1) throw new Error(`TA clock should start at the budget ${taBudget}, got ${ta0.clock}`);
+  const hudTa = await page.textContent('#hud-track');
+  if (!hudTa.includes('Time Attack')) throw new Error(`HUD should name Time Attack, got: ${hudTa}`);
+  await page.waitForFunction((c0) => {
+    const i = window.__apex.info();
+    return i && i.clock < c0 - 1;
+  }, ta0.clock, { timeout: 30000 });
+  const ta1 = await page.evaluate(() => window.__apex.info());
+  console.log(`render-check: M4 Time Attack HUD — clock ticking down (${ta0.clock.toFixed(1)}s -> ${ta1.clock.toFixed(1)}s, budget ${taBudget}s)`);
+  // The autopilot clears track 1 in Time Attack: orbs fuel the
+  // clock, the TA best saves, and the orb bank grows again.
+  const bankBefore = (await page.evaluate(() => window.__apex.save())).totalOrbs;
+  await page.evaluate(() => window.__apex.autopilot(true));
+  await page.waitForFunction(() => {
+    const i = window.__apex.info();
+    return i && i.completed;
+  }, null, { timeout: 420000 });
+  const taCleared = await page.evaluate(() => window.__apex.info());
+  if (taCleared.clock <= 0) throw new Error(`TA clear should leave clock on the table, got ${taCleared.clock}`);
+  const savedTA = await page.evaluate(() => window.__apex.save());
+  if (!savedTA.bestTA || !savedTA.bestTA[1] || savedTA.bestTA[1].time <= 0) {
+    throw new Error(`Time Attack best should save for track 1: ${JSON.stringify(savedTA.bestTA)}`);
+  }
+  if (!(savedTA.totalOrbs > bankBefore)) throw new Error(`orb bank should grow on a TA clear (${bankBefore} -> ${savedTA.totalOrbs})`);
+  console.log(`render-check: M4 Time Attack clear — time ${taCleared.time.toFixed(1)}s, ${taCleared.clock.toFixed(1)}s left on the clock, TA best saved, bank ${bankBefore} -> ${savedTA.totalOrbs}`);
+  const taCompText = await page.textContent('#complete-detail');
+  if (!taCompText || !taCompText.includes('Time Attack')) throw new Error(`TA clear screen should say Time Attack: ${taCompText}`);
+  // The time-up path: a fresh TA run whose clock is forced nearly
+  // empty must end on the Time Up screen, not a clear — and Retry
+  // must start a fresh TA run at the full budget.
+  await page.click('#btn-menu-complete');
+  await page.waitForFunction(() => window.__apex.state.phase === 'menu', null, { timeout: 5000 });
+  await page.click('#btn-play');
+  await page.waitForFunction(() => window.__apex.state.phase === 'run', null, { timeout: 5000 });
+  await page.evaluate(() => window.__apex.setClock(0.5));
+  await page.waitForFunction(() => window.__apex.state.phase === 'timeup', null, { timeout: 30000 });
+  if (!await page.isVisible('#timeup')) throw new Error('Time Up overlay not visible after the clock hit zero');
+  const timeupText = await page.textContent('#timeup');
+  if (!timeupText.includes('Time Up') || !timeupText.includes('clock hit zero')) {
+    throw new Error(`Time Up screen should explain the clock: ${timeupText.slice(0, 200)}`);
+  }
+  const timeupInfo = await page.evaluate(() => window.__apex.info());
+  if (!timeupInfo.timeUp || timeupInfo.completed) throw new Error(`time-up run must be done + timeUp, not completed: ${JSON.stringify({ timeUp: timeupInfo.timeUp, completed: timeupInfo.completed })}`);
+  await page.click('#btn-timeup-retry');
+  await page.waitForFunction(() => window.__apex.state.phase === 'run', null, { timeout: 5000 });
+  const retryClock = await page.evaluate(() => window.__apex.info().clock);
+  if (Math.abs(retryClock - taBudget) > 1) throw new Error(`Retry should restart at the full TA budget ${taBudget}, got ${retryClock}`);
+  console.log('render-check: M4 time-up path — clock at zero shows Time Up, Retry restarts at the full budget');
+  // Back to Normal mode for the remaining checks.
+  await page.keyboard.press('p');
+  await page.waitForFunction(() => window.__apex.state.phase === 'paused', null, { timeout: 5000 });
+  await page.click('#btn-quit');
+  await page.waitForFunction(() => window.__apex.state.phase === 'menu', null, { timeout: 5000 });
+  await page.evaluate(() => window.__apex.setMode('normal'));
+
+  // A fresh track-1 run with no input: the runner must fall into
+  // the void and reset to a checkpoint. (Already on the menu after
+  // the TA flow's quit — no complete screen to leave.)
   await page.click('#btn-play');
   await page.waitForFunction(() => window.__apex.state.phase === 'run', null, { timeout: 5000 });
   await page.waitForFunction(() => {
@@ -447,7 +542,7 @@ try {
     for (const e of errors) console.error('  ' + e);
     throw new Error(`${errors.length} console/page error(s)`);
   }
-  console.log('render-check: PASS — menu, screen-space movement + jump, autopilot clears track 1, void death + checkpoint reset, pause/resume/restart, settings persist, touch tap jumps, M3 feel (jump feedback latency, music sequencer, ring dissolve, reduce-flashing toggle), zero console errors');
+  console.log('render-check: PASS — menu, screen-space movement + jump, autopilot clears track 1, void death + checkpoint reset, pause/resume/restart, settings persist, touch tap jumps, M3 feel (jump feedback latency, music sequencer, ring dissolve, reduce-flashing toggle), M4 (mode toggle, medal + orb bank on clear, Time Attack clear + time-up path), zero console errors');
 } finally {
   if (browser) await browser.close();
   server.close();

@@ -5,8 +5,10 @@ import {
   createRun, startRun, stepRun, simulateRun, noInputPolicy, randomPolicy, decisionPolicy,
   platformXAt, clamp, mulberry32,
   FEEDBACK, FEEDBACK_TIERS, FEEDBACK_LAYERS,
-  defaultSave, serializeSave, parseSave, recordBest, isTrackUnlocked,
-  ORB_SCORE, PERFECT_BASE, PERFECT_STEP,
+  defaultSave, serializeSave, parseSave, recordBest, recordBestTA, isTrackUnlocked,
+  ORB_SCORE, ORB_SCORE_JUMP, PERFECT_BASE, PERFECT_STEP,
+  TA_ORB_TIME, TA_JUMP_ORB_TIME, TA_CHECKPOINT_TIME, TA_DEATH_PENALTY,
+  taBudget, medalFor, orbScore, orbTime,
 } from '../physics.js';
 
 let passed = 0, failed = 0;
@@ -17,7 +19,7 @@ function check(name, cond) {
 }
 function approx(a, b, eps = 1e-9) { return Math.abs(a - b) <= eps; }
 
-check('physics version is 0.3.1', VERSION === '0.3.1');
+check('physics version is 0.4.0', VERSION === '0.4.0');
 check('12 tracks defined', TRACKS.length === 12);
 check('track ids are 1..12 in order', TRACKS.every((t, i) => t.id === i + 1));
 check('every track has a name and a hint', TRACKS.every((t) => t.name && t.hint));
@@ -210,6 +212,8 @@ for (const [name, fb] of Object.entries(FEEDBACK)) {
   run.s = orb.s - 0.5; run.x = LANES[orb.lane + 1]; run.lane = orb.lane; run.laneTarget = orb.lane;
   stepRun(run, { jump: false, slide: false, lane: null }, DT);
   check('ground orb collected on the run', run.orbs === 1 && run.score === ORB_SCORE);
+  check('ground orb is worth 50', orbScore(orb) === 50);
+  check('jump orb is worth double (100) — risk pays', orbScore({ y: 1.8 }) === ORB_SCORE_JUMP && ORB_SCORE_JUMP === 100);
   const jumpOrb = t.orbs.find((o) => o.y === 1.8);
   const run2 = startRun(t);
   run2.s = jumpOrb.s - 0.5; run2.x = LANES[jumpOrb.lane + 1]; run2.lane = jumpOrb.lane; run2.laneTarget = jumpOrb.lane;
@@ -218,8 +222,12 @@ for (const [name, fb] of Object.entries(FEEDBACK)) {
   const run3 = startRun(t);
   run3.s = jumpOrb.s - 0.5; run3.x = LANES[jumpOrb.lane + 1]; run3.lane = jumpOrb.lane; run3.laneTarget = jumpOrb.lane;
   run3.y = 1.8; run3.vy = 0; run3.grounded = false; run3.jumpsUsed = 1;
+  // The jump orbs sit past both checkpoints — mark them passed so
+  // their +25s don't pollute the score assertion.
+  run3.checkpointIndex = t.checkpoints.length - 1;
   stepRun(run3, { jump: false, slide: false, lane: null }, DT);
   check('jump orb IS collected mid-jump', run3.orbs === 1);
+  check('jump orb scores 100', run3.score === ORB_SCORE_JUMP);
 }
 {
   // Checkpoints: passing one moves the respawn; death returns there.
@@ -253,16 +261,94 @@ for (const [name, fb] of Object.entries(FEEDBACK)) {
   check('save round-trips', parseSave(serializeSave(save)).version === 1);
   check('corrupt save falls back to defaults', parseSave('not json').version === 1);
   check('old-version save falls back to defaults', parseSave(JSON.stringify({ version: 99 })).version === 1);
-  let best = recordBest({}, 1, { time: 30, score: 1000, orbs: 9, deaths: 0 });
+  let best = recordBest({}, 1, { time: 30, score: 1000, orbs: 9, deaths: 0 }, 18);
   check('best recorded', best[1].time === 30 && best[1].score === 1000);
-  best = recordBest(best, 1, { time: 32, score: 5000, orbs: 9, deaths: 0 });
+  check('best carries its medal (30s vs par 18 = bronze)', best[1].medal === 'bronze');
+  best = recordBest(best, 1, { time: 32, score: 5000, orbs: 9, deaths: 0 }, 18);
   check('slower time does not replace the best', best[1].time === 30);
-  best = recordBest(best, 1, { time: 28, score: 800, orbs: 9, deaths: 1 });
+  best = recordBest(best, 1, { time: 28, score: 800, orbs: 9, deaths: 1 }, 18);
   check('faster time replaces the best', best[1].time === 28);
+  check('medal thresholds: par or better is gold', medalFor(18, 18) === 'gold' && medalFor(17.5, 18) === 'gold');
+  check('medal thresholds: within 5s of par is silver', medalFor(22.9, 18) === 'silver');
+  check('medal thresholds: slower than par+5 is bronze', medalFor(23.1, 18) === 'bronze');
+  check('recordBest without a par keeps the old medal', recordBest({ 1: { time: 30, medal: 'bronze' } }, 1, { time: 29, score: 1, orbs: 0, deaths: 0 })[1].medal === 'bronze');
+  let bestTA = recordBestTA({}, 1, { time: 20, score: 1000, orbs: 9, deaths: 0 });
+  check('Time Attack best recorded', bestTA[1].time === 20);
+  bestTA = recordBestTA(bestTA, 1, { time: 21, score: 9000, orbs: 9, deaths: 0 });
+  check('slower Time Attack time does not replace the best', bestTA[1].time === 20);
+  bestTA = recordBestTA(bestTA, 1, { time: 19, score: 800, orbs: 9, deaths: 1 });
+  check('faster Time Attack time replaces the best', bestTA[1].time === 19);
+  check('default save has an empty Time Attack table and orb bank', Object.keys(defaultSave().bestTA).length === 0 && defaultSave().totalOrbs === 0);
+  {
+    const s = defaultSave();
+    s.bestTA = { 1: { time: 19, score: 800, orbs: 9, deaths: 0 } };
+    s.totalOrbs = 123;
+    const back = parseSave(serializeSave(s));
+    check('save round-trips Time Attack bests', back.bestTA[1] && back.bestTA[1].time === 19);
+    check('save round-trips the orb bank', back.totalOrbs === 123);
+    const legacy = parseSave(JSON.stringify({ version: 1, best: { 1: { time: 30 } }, settings: {} }));
+    check('a v1 save without the new fields still loads (bestTA defaults empty)', legacy.best && legacy.best[1].time === 30 && Object.keys(legacy.bestTA).length === 0 && legacy.totalOrbs === 0);
+  }
   check('track 1 unlocked on a fresh save', isTrackUnlocked({}, 1));
   check('track 2 locked on a fresh save', !isTrackUnlocked({}, 2));
   check('track 2 unlocks when track 1 has a best', isTrackUnlocked({ 1: { time: 30 } }, 2));
   check('track 3 stays locked when only track 1 is cleared', !isTrackUnlocked({ 1: { time: 30 } }, 3));
+}
+
+// --- M4: Time Attack (orbs fuel the clock) ---
+{
+  const t = TRACKS[0];
+  const run = startRun(t, { mode: 'ta' });
+  check('Time Attack run starts with the clock at the budget', run.mode === 'ta' && run.clock === taBudget(t));
+  check('Time Attack budget is 60% of par, rounded up', taBudget(t) === Math.ceil(t.par * 0.6));
+  check('normal run has no clock', startRun(t).clock === null);
+  check('jump orb buys more clock than a ground orb', orbTime({ y: 1.8 }) === TA_JUMP_ORB_TIME && orbTime({ y: 0 }) === TA_ORB_TIME && TA_JUMP_ORB_TIME > TA_ORB_TIME);
+  // The clock ticks down with real time.
+  const c0 = run.clock;
+  stepRun(run, { jump: false, slide: false, lane: null }, DT);
+  check('Time Attack clock ticks down', run.clock < c0 && Math.abs((c0 - run.clock) - DT) < 1e-9);
+  // A ground orb adds its time back.
+  const orb = t.orbs.find((o) => o.y === 0);
+  const run2 = startRun(t, { mode: 'ta' });
+  run2.s = orb.s - 0.5; run2.x = LANES[orb.lane + 1]; run2.lane = orb.lane; run2.laneTarget = orb.lane;
+  const before = run2.clock;
+  stepRun(run2, { jump: false, slide: false, lane: null }, DT);
+  check('ground orb adds 1.5s to the clock', run2.orbs === 1 && Math.abs(run2.clock - (before - DT + TA_ORB_TIME)) < 1e-9);
+  // A jump orb adds more.
+  const jumpOrb = t.orbs.find((o) => o.y === 1.8);
+  const run3 = startRun(t, { mode: 'ta' });
+  run3.s = jumpOrb.s - 0.5; run3.x = LANES[jumpOrb.lane + 1]; run3.lane = jumpOrb.lane; run3.laneTarget = jumpOrb.lane;
+  run3.y = 1.8; run3.vy = 0; run3.grounded = false; run3.jumpsUsed = 1;
+  // Past both checkpoints — mark them passed so their +2s don't
+  // pollute the clock assertion.
+  run3.checkpointIndex = t.checkpoints.length - 1;
+  const before3 = run3.clock;
+  stepRun(run3, { jump: false, slide: false, lane: null }, DT);
+  check('jump orb adds 2.5s to the clock', run3.orbs === 1 && Math.abs(run3.clock - (before3 - DT + TA_JUMP_ORB_TIME)) < 1e-9);
+  // A checkpoint adds 2s.
+  const cp = t.checkpoints[0];
+  const run4 = startRun(t, { mode: 'ta' });
+  run4.s = cp.s - 0.5;
+  const before4 = run4.clock;
+  for (let i = 0; i < 10 && run4.s < cp.s; i++) stepRun(run4, { jump: false, slide: false, lane: null }, DT);
+  check('checkpoint adds 2s to the clock', run4.checkpointIndex === 0 && run4.clock > before4);
+  // A death costs 3s off the clock (and does NOT add to elapsed time).
+  const run5 = startRun(t, { mode: 'ta' });
+  const tBefore = run5.time;
+  run5.y = VOID_Y - 1; run5.vy = -5; run5.grounded = false;
+  const clockBefore = run5.clock;
+  stepRun(run5, { jump: false, slide: false, lane: null }, DT);
+  check('Time Attack death costs 3s off the clock', run5.deaths === 1 && Math.abs(run5.clock - (clockBefore - DT - TA_DEATH_PENALTY)) < 1e-9);
+  check('Time Attack death does not pad the elapsed time', Math.abs(run5.time - (tBefore + DT)) < 1e-9);
+  // The clock running out ends the run as a time-up, not a clear.
+  const run6 = startRun(t, { mode: 'ta' });
+  run6.clock = 0.01;
+  stepRun(run6, { jump: false, slide: false, lane: null }, DT);
+  check('clock at zero ends the run as a time-up', run6.done && run6.timeUp && !run6.completed);
+  // Finishing banks the clock left into the score.
+  const sim = simulateRun(t, decisionPolicy, { mode: 'ta' });
+  check('decision bot clears Time Attack track 1', sim.completed && !sim.timeUp);
+  check('Time Attack clear leaves clock on the table', sim.clock > 0);
 }
 
 if (failed) {

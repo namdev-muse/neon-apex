@@ -1,4 +1,5 @@
-// Neon Apex v0.3.1 — headless eye-playtest of ALL 12 tracks (M2 gate).
+// Neon Apex v0.4.0 — headless eye-playtest of ALL 12 tracks (M2 gate,
+// M4: TA=1 re-runs the whole sweep in Time Attack mode).
 // Serves the local game dir, seeds a save with tracks 1-11 cleared (so all
 // 12 unlock — the same unlock rule the live game uses), then drives every
 // track with the in-game autopilot (the decision bot through the public
@@ -12,9 +13,13 @@
 //   - orb lines pull the runner forward along risky lines
 //   - T1's two over-bars (platforms 8 and 11) are visible and readable
 //   - T9's slide chains read as slide chains, not walls
+//   - in TA mode: the countdown HUD reads, +s pops fire on orbs, the
+//     clock left at the finish is the margin (tight on T6/T9, wide on
+//     the orb-rich T1/T7 — the mode's difficulty tracks orb density)
 // Records per-track clear time / score / orbs / perfects / deaths and
 // asserts the same gates as tests/bot.js, in the real renderer.
-// Run: node tests/playtest-tracks.js
+// Run: node tests/playtest-tracks.js        (normal mode)
+//      TA=1 node tests/playtest-tracks.js   (Time Attack mode)
 // Output: screenshots + playtest-tracks.json in the shots dir printed below.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -25,7 +30,8 @@ import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 
 const GAME_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHOTS_DIR = path.join(os.homedir(), 'workspace', 'goals', 'neon-apex-sprint', 'hidden_files', 'm2-playtest-shots');
+const TA_MODE = process.env.TA === '1';
+const SHOTS_DIR = path.join(os.homedir(), 'workspace', 'goals', 'neon-apex-sprint', 'hidden_files', TA_MODE ? 'm4-playtest-shots' : 'm2-playtest-shots');
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 const THREE_CACHE = path.join(os.tmpdir(), 'neon-apex-three-0.160.0.module.js');
 
@@ -119,17 +125,17 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => window.__apex, null, { timeout: 30000 });
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.3.1') throw new Error(`expected version 0.3.1, got ${version}`);
+  if (version !== '0.4.0') throw new Error(`expected version 0.4.0, got ${version}`);
   const unlocks = await page.evaluate(() => window.__apex.unlocks());
   if (!Object.values(unlocks).every(Boolean)) throw new Error(`seeded save should unlock all 12 tracks: ${JSON.stringify(unlocks)}`);
-  console.log('playtest-tracks: game 0.3.1 up, seeded save unlocks all 12 tracks');
+  console.log(`playtest-tracks: game 0.4.0 up, seeded save unlocks all 12 tracks, mode ${TA_MODE ? 'Time Attack' : 'normal'}`);
 
   fs.mkdirSync(SHOTS_DIR, { recursive: true });
   const tracks = await page.evaluate(() => window.__apex.tracks());
   for (const t of tracks) {
     const tag = `T${String(t.id).padStart(2, '0')}`;
     console.log(`playtest-tracks: --- ${tag} "${t.name}" (par ${t.par}s, ${t.orbCount} orbs, ${t.platforms} platforms, ${t.barriers} barriers) ---`);
-    await page.evaluate((id) => window.__apex.startTrack(id), t.id);
+    await page.evaluate(([id, mode]) => window.__apex.startTrack(id, mode), [t.id, TA_MODE ? 'ta' : 'normal']);
     // First track build compiles the full scene under swiftshader;
     // that can stall rAF for many seconds on a cold start, so this
     // wait is generous (M3: the 10s bound flaked once on T01).
@@ -155,14 +161,16 @@ try {
     }
     await page.waitForFunction(() => {
       const i = window.__apex.info();
-      return i && i.completed;
+      return i && (i.completed || i.timeUp);
     }, null, { timeout: 420000 });
     const done = await page.evaluate(() => window.__apex.info());
-    console.log(`playtest-tracks: ${tag} CLEARED in ${done.time.toFixed(1)}s (par ${t.par}s), score ${done.score}, orbs ${done.orbs}/${t.orbCount}, perfects ${done.perfects}, max chain x${done.maxChain}, deaths ${done.deaths}`);
+    if (done.timeUp) throw new Error(`${tag}: autopilot ran out of clock in Time Attack (timeUp at ${done.time.toFixed(1)}s, ${done.orbs}/${t.orbCount} orbs)`);
+    console.log(`playtest-tracks: ${tag} CLEARED in ${done.time.toFixed(1)}s (par ${t.par}s), score ${done.score}, orbs ${done.orbs}/${t.orbCount}, perfects ${done.perfects}, max chain x${done.maxChain}, deaths ${done.deaths}${TA_MODE ? `, clock left ${done.clock.toFixed(1)}s` : ''}`);
     results.push({
       id: t.id, name: t.name, par: t.par, orbCount: t.orbCount,
       time: +done.time.toFixed(1), score: done.score, orbs: done.orbs,
       perfects: done.perfects, maxChain: done.maxChain, deaths: done.deaths,
+      clockLeft: TA_MODE ? +done.clock.toFixed(1) : null,
     });
     if (done.deaths > 2) throw new Error(`${tag}: autopilot died ${done.deaths} times (want <= 2)`);
     if (done.orbs < 1) throw new Error(`${tag}: autopilot collected no orbs`);
@@ -178,9 +186,9 @@ try {
     for (const e of errors) console.error('  ' + e);
     throw new Error(`${errors.length} console/page error(s)`);
   }
-  fs.writeFileSync(path.join(SHOTS_DIR, 'playtest-tracks.json'), JSON.stringify({ version: '0.3.1', ranAt: new Date().toISOString(), results }, null, 2));
-  console.log('playtest-tracks: PASS — decision-bot autopilot cleared all 12 tracks in the real renderer, zero console errors');
-  console.log(`playtest-tracks: screenshots in ${SHOTS_DIR} — INSPECT BY EYE before calling M2 done`);
+  fs.writeFileSync(path.join(SHOTS_DIR, 'playtest-tracks.json'), JSON.stringify({ version: '0.4.0', mode: TA_MODE ? 'ta' : 'normal', ranAt: new Date().toISOString(), results }, null, 2));
+  console.log(`playtest-tracks: PASS — decision-bot autopilot cleared all 12 tracks in the real renderer (${TA_MODE ? 'Time Attack' : 'normal'}), zero console errors`);
+  console.log(`playtest-tracks: screenshots in ${SHOTS_DIR} — INSPECT BY EYE before calling M${TA_MODE ? '4' : '2'} done`);
 } finally {
   if (browser) await browser.close();
   server.close();

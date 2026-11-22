@@ -31,3 +31,32 @@ for (const track of TRACKS) {
 
 if (failures) { console.error(`bot: ${failures} failure(s)`); process.exit(1); }
 console.log(`bot: PASS — decision bot completes all ${TRACKS.length} tracks, random bots fail all ${TRACKS.length} on 5 lives (2 seeds each), no-input dies on all ${TRACKS.length}`);
+
+// --- M4: Time Attack gate ---
+// The decision bot must clear every track in Time Attack with 0
+// deaths (the mode is completable by good play). A bot that plays
+// Time Attack the way a normal-mode player plays — never steering
+// for orbs, never jumping for jump orbs — must run dry on the
+// orb-sparse tracks (T2–T6), proving the clock is fuelled by orbs
+// and not by the starting budget. Random inputs must fail TA too.
+function orbBlindPolicy(track, run, opts) {
+  return decisionPolicy(track, run, { ...opts, ignoreOrbs: true });
+}
+let taFailures = 0;
+let blindFails = 0;
+for (const track of TRACKS) {
+  const ta = simulateRun(track, decisionPolicy, { mode: 'ta' });
+  const blind = simulateRun(track, orbBlindPolicy, { mode: 'ta' });
+  const rand = simulateRun(track, randomPolicy(1000 + track.id), { mode: 'ta', maxDeaths: 5 });
+  console.log(`TA Track ${track.id}: decision ${ta.completed ? `CLEAR clock ${ta.clock.toFixed(1)}s left` : 'FAILED'}`
+    + ` (${ta.orbs}/${track.orbCount} orbs, ${ta.deaths} deaths)`
+    + ` | orb-blind ${blind.completed ? `cleared (clock ${blind.clock.toFixed(1)})` : 'ran dry'}`
+    + ` | random ${rand.completed ? 'CLEARED (SLOP!)' : 'failed'}`);
+  if (!ta.completed) { taFailures++; console.error(`  TA BOT FAIL: track ${track.id} not completed by the decision bot in Time Attack`); }
+  if (ta.deaths > 0) { taFailures++; console.error(`  TA BOT FAIL: track ${track.id} decision bot died ${ta.deaths} times in Time Attack (want 0)`); }
+  if (!blind.completed) blindFails++;
+  if (rand.completed) { taFailures++; console.error(`  TA BOT FAIL: track ${track.id} clearable by random inputs in Time Attack`); }
+}
+if (blindFails < 4) { taFailures++; console.error(`  TA BOT FAIL: orb-blind bot failed only ${blindFails}/12 tracks in Time Attack (want 4+ — orbs must be the fuel)`); }
+if (taFailures) { console.error(`bot (Time Attack): ${taFailures} failure(s)`); process.exit(1); }
+console.log(`bot (Time Attack): PASS — decision bot clears all ${TRACKS.length} tracks with 0 deaths, orb-blind bot runs dry on ${blindFails}/${TRACKS.length}, random fails all ${TRACKS.length}`);
