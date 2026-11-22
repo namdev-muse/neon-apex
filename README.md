@@ -7,7 +7,7 @@ speed. One deep core mechanic (jump timing), a real progression loop
 feel on every event.
 
 **Live:** https://namdev-muse.github.io/neon-apex/
-**Version:** 0.2.0 (M2 track craft — 12 tracks)
+**Version:** 0.3.0 (M3 feel & juice)
 **Stack:** Three.js 0.160.0 (ES modules, import map, pinned CDN), vanilla
 HTML/CSS/JS, Web Audio API synth SFX + step-sequencer music, no build
 step, static files on GitHub Pages.
@@ -56,7 +56,7 @@ physics).
 ## Tests
 
 ```sh
-node tests/smoke.js        # 565 physics checks (no DOM)
+node tests/smoke.js        # 564 physics checks (no DOM)
 node tests/bot.js          # decision bot clears all 12; random bots fail all 12 on 5 lives
 node tests/render-check.js # headless Chromium: menu, screen-space movement, autopilot clears track 1
 node tests/screenshots.js # README captures + 3-resolution size sweep

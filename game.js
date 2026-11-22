@@ -1,4 +1,4 @@
-// Neon Apex v0.2.0 — Three.js presentation layer.
+// Neon Apex v0.3.0 — Three.js presentation layer.
 // The runner auto-sprints forward along floating neon platforms
 // (sim forward = +s, world forward = -z). Jump / double-jump /
 // slide / lane-switch with momentum; perfect landings chain speed;
@@ -77,6 +77,7 @@ let hitStopT = 0;
 let slowMoT = 0;
 let fovPulse = 0;
 let squashT = 0;
+let landDip = 0; // camera dip impulse on landing (visual only)
 let timeScale = 1;
 let shakeAmp = 0;
 let simAcc = 0;
@@ -142,10 +143,32 @@ function noiseBurst(dur, vol = 0.25, lowpass = 1200) {
   src.connect(f); f.connect(g); g.connect(sfxGain);
   src.start(t0);
 }
+// Whoosh: band-passed noise sweeping from f0 to f1 — the air-rush of a
+// jump, double-jump and slide. Distinct from the tonal SFX so the ear
+// reads "movement" separately from "event".
+function whoosh(dur, f0, f1, vol = 0.22) {
+  if (!audioCtx || !sfxGain || save.settings.sfx === false) return;
+  const t0 = audioCtx.currentTime;
+  const len = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const f = audioCtx.createBiquadFilter();
+  f.type = 'bandpass'; f.Q.value = 1.1;
+  f.frequency.setValueAtTime(f0, t0);
+  f.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t0 + dur);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  src.connect(f); f.connect(g); g.connect(sfxGain);
+  src.start(t0);
+}
 const SFX = {
-  jump() { tone(280, 0.14, 'square', 0.16, 520); },
-  doubleJump() { tone(420, 0.14, 'square', 0.16, 760); },
-  slide() { noiseBurst(0.18, 0.18, 900); },
+  jump() { tone(280, 0.14, 'square', 0.16, 520); whoosh(0.18, 400, 1800, 0.2); },
+  doubleJump() { tone(420, 0.14, 'square', 0.16, 760); whoosh(0.18, 600, 2400, 0.2); },
+  slide() { noiseBurst(0.18, 0.18, 900); whoosh(0.22, 1400, 300, 0.16); },
   land() { tone(140, 0.09, 'sine', 0.22, 70); noiseBurst(0.06, 0.1, 500); },
   perfect() { tone(660, 0.1, 'sine', 0.22); tone(990, 0.14, 'sine', 0.22, null, 0.07); },
   orb() { tone(880, 0.1, 'sine', 0.2, 1320); },
@@ -155,27 +178,58 @@ const SFX = {
   lane() { noiseBurst(0.08, 0.1, 2400); },
   click() { tone(1200, 0.04, 'square', 0.1); },
 };
-// Music: 8-step loop, A-minor bass + hats. Runs only while the audio
-// context is live and music is on; the step counter is exposed for
-// the render check.
+// Music: 16-step loop, A-minor. Layer 1: the bass pulse (8-step
+// pattern, repeated). Layer 2: a quiet pentatonic arp on the
+// off-steps, so the run has a melody that rises with the action.
+// Layer 3: a soft two-note pad at the top of each loop. Runs only
+// while the audio context is live and music is on; the step counter
+// is exposed for the render check.
 const BASS = [55, 0, 55, 65.41, 55, 0, 82.41, 65.41];
+const ARP = [220, 0, 261.63, 0, 329.63, 0, 392, 0, 440, 0, 392, 0, 329.63, 0, 261.63, 0];
 function musicTick() {
   if (!audioCtx || !musicGain || save.settings.music === false || save.settings.muted) return;
   const now = audioCtx.currentTime;
   if (musicNextTime < now) musicNextTime = now + 0.05;
   while (musicNextTime < now + 0.25) {
-    const step = musicStep % 8;
+    const step = musicStep % 16;
     const when = musicNextTime - now;
-    if (BASS[step]) {
+    const bass = BASS[step % 8];
+    if (bass) {
       const o = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'triangle';
-      o.frequency.value = BASS[step];
+      o.frequency.value = bass;
       g.gain.setValueAtTime(0.0001, now + when);
       g.gain.exponentialRampToValueAtTime(0.32, now + when + 0.02);
       g.gain.exponentialRampToValueAtTime(0.001, now + when + 0.2);
       o.connect(g); g.connect(musicGain);
       o.start(now + when); o.stop(now + when + 0.22);
+    }
+    // Arp: bright sine pluck, quiet, on the off-steps.
+    if (ARP[step]) {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.value = ARP[step];
+      g.gain.setValueAtTime(0.0001, now + when);
+      g.gain.exponentialRampToValueAtTime(0.09, now + when + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, now + when + 0.18);
+      o.connect(g); g.connect(musicGain);
+      o.start(now + when); o.stop(now + when + 0.2);
+    }
+    // Pad: A2 + E3, one soft swell per loop.
+    if (step === 0) {
+      for (const f of [110, 164.81]) {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, now + when);
+        g.gain.exponentialRampToValueAtTime(0.06, now + when + 0.4);
+        g.gain.exponentialRampToValueAtTime(0.001, now + when + 1.8);
+        o.connect(g); g.connect(musicGain);
+        o.start(now + when); o.stop(now + when + 1.85);
+      }
     }
     if (step % 2 === 1) {
       const len = Math.floor(audioCtx.sampleRate * 0.03);
@@ -300,7 +354,9 @@ runnerGroup.add(finR);
 scene.add(runnerGroup);
 
 // Particles (one InstancedMesh, pooled) + trail (same pool, cyan).
-const PARTICLE_MAX = 72;
+// M3: the pool grew 72 -> 128 and the grains got bigger — the M1
+// playtest said particles read too faintly at speed.
+const PARTICLE_MAX = 128;
 const particleMesh = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xffffff }), PARTICLE_MAX);
 particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 particleMesh.count = PARTICLE_MAX;
@@ -311,7 +367,7 @@ for (let i = 0; i < PARTICLE_MAX; i++) {
   particleMesh.setColorAt(i, particles[i].color);
 }
 const dummy = new THREE.Object3D();
-function spawnParticles(x, y, z, colorHex, count, speed, up = 2) {
+function spawnParticles(x, y, z, colorHex, count, speed, up = 2, flat = false) {
   let spawned = 0;
   for (const p of particles) {
     if (spawned >= count) break;
@@ -322,10 +378,12 @@ function spawnParticles(x, y, z, colorHex, count, speed, up = 2) {
     const r = Math.random() * speed;
     p.vx = Math.cos(a) * r;
     p.vz = Math.sin(a) * r;
-    p.vy = (Math.random() - 0.3) * up;
+    // Flat bursts (landing dust) spread sideways and stay low;
+    // normal bursts spray up as well.
+    p.vy = flat ? (Math.random() - 0.5) * up * 0.4 : (Math.random() - 0.3) * up;
     p.maxLife = 0.45 + Math.random() * 0.35;
     p.life = p.maxLife;
-    p.size = 0.14 + Math.random() * 0.16;
+    p.size = 0.2 + Math.random() * 0.25;
     p.color.setHex(colorHex);
     particleMesh.setColorAt(particles.indexOf(p), p.color);
     spawned++;
@@ -352,8 +410,10 @@ function updateParticles(dt) {
   }
   particleMesh.instanceMatrix.needsUpdate = true;
 }
-// Trail: a fading ribbon of dots behind the runner.
-const TRAIL_MAX = 22;
+// Trail: a fading ribbon of dots behind the runner. M3: longer
+// (22 -> 30) and it fattens as the perfect chain grows, so a hot
+// run visibly streaks.
+const TRAIL_MAX = 30;
 const trailMesh = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.55 }), TRAIL_MAX);
 trailMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(trailMesh);
@@ -363,17 +423,18 @@ let trailTimer = 0;
 function updateTrail(dt, run) {
   trailTimer -= dt;
   if (run && (run.grounded || run.y > 0) && trailTimer <= 0) {
-    trailTimer = 0.028;
+    trailTimer = 0.022;
     const slot = trail.find((t) => !t.alive) || trail[0];
-    slot.alive = true; slot.life = 0.4;
+    slot.alive = true; slot.life = 0.45;
     slot.x = run.x; slot.y = run.y + 0.7; slot.z = -run.s + 0.6;
   }
+  const fat = 0.16 + Math.min(run ? run.chain : 0, 5) * 0.03;
   for (let i = 0; i < TRAIL_MAX; i++) {
     const t = trail[i];
     if (t.alive) {
       t.life -= dt;
       if (t.life <= 0) { t.alive = false; dummy.scale.setScalar(0.0001); }
-      else dummy.scale.setScalar(0.16 * (t.life / 0.4));
+      else dummy.scale.setScalar(fat * (t.life / 0.45));
     } else dummy.scale.setScalar(0.0001);
     dummy.position.set(t.x, t.y, t.z);
     dummy.updateMatrix();
@@ -389,6 +450,7 @@ let trackGroup = null;
 let platformMeshes = []; // { mesh, edge, platform }
 let orbMeshes = []; // { mesh, orb }
 let barrierMeshes = [];
+let ringMeshes = []; // { mesh, mat, s, fadeT, done } — checkpoint rings
 let currentTrack = null;
 let currentEdgeMat = null;
 
@@ -402,6 +464,7 @@ function disposeTrackGroup() {
   platformMeshes = [];
   orbMeshes = [];
   barrierMeshes = [];
+  ringMeshes = [];
 }
 
 function buildTrackMeshes(track) {
@@ -465,9 +528,16 @@ function buildTrackMeshes(track) {
     orbMeshes.push({ mesh, orb: o });
   }
   for (const cp of track.checkpoints) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.13, 8, 32), checkpointMat);
+    // Each ring gets its own material clone: once the runner passes
+    // through, the ring dissolves (fade + shrink) instead of
+    // sweeping across the camera and hiding the track — the M2
+    // eye-playtest wart (T01 70% frame was almost all cyan arc).
+    const mat = checkpointMat.clone();
+    mat.transparent = true;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.13, 8, 32), mat);
     ring.position.set(0, 1.7, -cp.s);
     trackGroup.add(ring);
+    ringMeshes.push({ mesh: ring, mat, s: cp.s, fadeT: -1, done: false });
   }
   const gate = new THREE.Mesh(new THREE.TorusGeometry(2.9, 0.2, 8, 40), finishMat);
   gate.position.set(0, 2.4, -track.finishS);
@@ -545,11 +615,15 @@ function feedback(type, extra = {}) {
   const quiet = state.phase === 'menu';
   if (layers.includes('particles')) {
     const color = { jump: 0x22d3ee, doubleJump: 0x67e8f9, slide: 0x9db8d6, land: 0x22d3ee, perfect: 0xf472b6, orb: 0xfbbf24, checkpoint: 0x22d3ee, death: 0xfb7185, finish: 0xfbbf24, lane: 0x22d3ee }[type] || 0x22d3ee;
-    spawnParticles(wx, wy, wz, color, type === 'death' ? 26 : type === 'perfect' ? 18 : 10, type === 'death' ? 6 : 3.5);
+    // M3: bigger bursts — landings kick up a flat dust ring at the
+    // feet, deaths and perfects throw far more grains.
+    const count = type === 'death' ? 40 : type === 'perfect' ? 26 : type === 'land' ? 18 : type === 'jump' || type === 'doubleJump' ? 14 : 12;
+    spawnParticles(wx, type === 'land' ? 0.15 : wy, wz, color, count, type === 'death' ? 6 : 3.5, 2, type === 'land');
   }
   if (layers.includes('flash') && !quiet) flash();
   if (layers.includes('slowMo')) { slowMoT = 0.7; }
   if (layers.includes('squash') && (type === 'land' || type === 'death')) squashT = 0.22;
+  if (type === 'land') landDip = 1;
   if (type === 'perfect' && !quiet) spawnPop(`PERFECT x${extra.chain || 1}  +${extra.points || 0}`, 'perfect');
   if (type === 'orb' && !quiet) spawnPop('+50');
   if (type === 'checkpoint' && !quiet) showToast('Checkpoint');
@@ -663,7 +737,7 @@ function startTrack(id) {
   state.autopilot = false;
   state.phase = 'run';
   simAcc = 0;
-  trauma = 0; hitStopT = 0; slowMoT = 0;
+  trauma = 0; hitStopT = 0; slowMoT = 0; landDip = 0; fovPulse = 0;
   buildTrackMeshes(track);
   runnerGroup.visible = true;
   snapCamera = true;
@@ -943,6 +1017,7 @@ function animate() {
   if (trauma > 0) trauma = Math.max(0, trauma - rawDt * 1.3);
   if (fovPulse > 0) fovPulse = Math.max(0, fovPulse - rawDt * 2.2);
   if (squashT > 0) squashT -= rawDt;
+  if (landDip > 0) landDip = Math.max(0, landDip - rawDt * 4);
   if (slowMoT > 0) slowMoT -= rawDt;
   timeScale = slowMoT > 0 ? 0.3 : 1;
 
@@ -984,11 +1059,20 @@ function animate() {
   if (run) {
     // Runner mesh follows the sim (screen space = world space here:
     // the camera looks down -z, so world +x is screen right).
-    runnerGroup.position.set(run.x, run.y + 0.95, -run.s);
+    // M3 run cycle: while grounded the body bobs with the stride,
+    // leans forward with speed, and the side fins pump like arms;
+    // in the air it tucks; sliding it leans low and forward.
+    const stride = run.s * 2.4;
+    const bob = run.grounded && run.sliding <= 0 ? Math.abs(Math.sin(stride)) * 0.07 : 0;
+    const lean = run.sliding > 0 ? -0.35 : run.grounded ? -0.06 - Math.min(run.speed, 18) * 0.008 : -0.18;
+    runnerGroup.position.set(run.x, run.y + 0.95 + bob, -run.s);
     const targetScaleY = run.sliding > 0 ? 0.55 : (squashT > 0 ? 0.8 : (run.grounded ? 1 : 1.12));
     runnerGroup.scale.y += (targetScaleY - runnerGroup.scale.y) * Math.min(1, rawDt * 14);
-    runnerGroup.rotation.x = run.grounded ? 0 : -0.18;
+    runnerGroup.rotation.x = lean;
     runnerGroup.rotation.z = THREE.MathUtils.clamp((run.x - LANES[run.laneTarget + 1]) * -0.06, -0.25, 0.25);
+    const swing = run.grounded && run.sliding <= 0 ? Math.sin(stride) * 0.55 : 0;
+    finL.rotation.x = swing;
+    finR.rotation.x = -swing;
     // Moving platforms + orbs + barriers pulse.
     const t = run.time;
     for (const pm of platformMeshes) {
@@ -1007,11 +1091,28 @@ function animate() {
     wallMat.emissiveIntensity = pulse;
     overMat.emissiveIntensity = pulse * 0.9;
     updateTrail(rawDt, run);
+    // Checkpoint rings dissolve once the runner passes through
+    // them: fade + shrink over 0.35s, then hide — a ring left solid
+    // sweeps the camera and hides the track (M2 wart).
+    for (const r of ringMeshes) {
+      if (r.done) continue;
+      if (r.fadeT < 0 && run.s > r.s + 0.5) r.fadeT = 0;
+      if (r.fadeT >= 0) {
+        r.fadeT += rawDt;
+        const k = Math.min(1, r.fadeT / 0.35);
+        r.mat.opacity = 1 - k;
+        const sc = 1 - 0.45 * k;
+        r.mesh.scale.setScalar(sc);
+        if (k >= 1) { r.done = true; r.mesh.visible = false; }
+      }
+    }
     // Camera chase with lookahead + trauma shake (visual only).
     // Closer and lower than a first pass: the runner must read
     // clearly mid-frame, not hide behind the platform it stands on.
-    const camTarget = new THREE.Vector3(run.x * 0.45, 3.6 + run.y * 0.3, -run.s + 7.5);
-    const lookTarget = new THREE.Vector3(run.x * 0.45, 1.4 + run.y * 0.4, -run.s - 14);
+    // M3: the lookahead grows with speed, and landings dip the
+    // camera a touch — the world answers the runner's feet.
+    const camTarget = new THREE.Vector3(run.x * 0.45, 3.6 + run.y * 0.3 - landDip * 0.28, -run.s + 7.5);
+    const lookTarget = new THREE.Vector3(run.x * 0.45, 1.4 + run.y * 0.4, -run.s - (12 + run.speed * 0.4));
     if (snapCamera || !camInit) {
       camera.position.copy(camTarget);
       camInit = true;
@@ -1021,8 +1122,8 @@ function animate() {
     }
     shakeAmp = trauma * trauma * (save.settings.shake ?? 1);
     if (shakeAmp > 0.001) {
-      camera.position.x += (Math.random() - 0.5) * 2 * shakeAmp * 0.9;
-      camera.position.y += (Math.random() - 0.5) * 2 * shakeAmp * 0.9;
+      camera.position.x += (Math.random() - 0.5) * 2 * shakeAmp * 1.1;
+      camera.position.y += (Math.random() - 0.5) * 2 * shakeAmp * 1.1;
     }
     camera.lookAt(lookTarget);
     const speedKick = THREE.MathUtils.clamp((run.speed - 10) * 1.1, 0, 8);
@@ -1134,6 +1235,13 @@ window.__apex = {
     if (masterGain) masterGain.gain.value = v ? 0 : (save.settings.volume ?? 0.6);
     persistSave(); updateMuteLabels();
   },
+  // Checkpoint rings: per-ring dissolve state for the current track.
+  rings() {
+    return ringMeshes.map((r) => ({ s: r.s, opacity: r.mat.opacity, visible: r.mesh.visible, done: r.done }));
+  },
+  // Fire one feedback bundle on demand (test-only: lets the render
+  // check assert flash/toast behaviour without staging a death).
+  testFeedback(type) { feedback(type); },
   info() {
     const run = activeRun();
     if (!run) return null;
