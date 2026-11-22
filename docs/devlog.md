@@ -1,5 +1,59 @@
 # Neon Apex — devlog
 
+## M3 fix-up — v0.3.1 (2026-11-22)
+
+The live-browser T1 playtest of v0.3.0 came back NO-GO on feel
+visibility, and timed headless diagnostics confirmed the two real
+findings (the rest were sampling artifacts — see below).
+
+- **THE bug: pooled InstancedMeshes were frustum-culled.** The
+  particle pool and the trail are InstancedMeshes whose instance
+  matrices move every frame — but Three.js computes an
+  InstancedMesh's bounding sphere ONCE, from the boot matrices
+  (all at the origin), and never recomputes it. So as soon as the
+  camera left the start, the whole particle mesh and the whole
+  trail were culled: no bursts, no trail, anywhere past the first
+  seconds of a track — for the entire life of the game (M1–M3).
+  The render check only asserted the feedback LOG (code fired),
+  never pixels, so it passed blind. The one burst ever seen (a
+  death burst in a diag frame) rendered only because the runner
+  had respawned near the start, where the origin-centred sphere
+  was still in view. Fix: `frustumCulled = false` on the particle
+  mesh, the trail mesh, and the city mesh (same stale-sphere trap
+  on track rebuild). Timed diag frames now show a big cyan jump
+  burst and the dotted trail behind the runner. Lesson: assert
+  pixels, not just logs — a feedback bundle that fires but never
+  renders is not feedback.
+- **Run cycle, second attempt.** The v0.3.0 cycle moved in planes
+  the chase camera cannot see: forward lean on a symmetric capsule
+  and fins swinging around X (only foreshortening from behind).
+  Timed frames at opposite stride phases looked identical — the
+  live playtest was right. v0.3.1 moves in planes the camera DOES
+  see: bob 0.07 → 0.16, side-to-side roll (±0.10 rad), fins
+  splaying around Z (±0.5 rad), and a stretch pulse on the body.
+  Opposite-phase frames now differ clearly (fins splayed vs
+  tucked, runner higher vs lower).
+- **Bursts grew again.** Jump/double-jump 26 particles living
+  1.5× longer, land dust 28 — the small cyan jump burst was the
+  hardest to catch even once culling was fixed.
+- **Timer bug (live playtest).** `fmtTime` formatted 9:59.97 as
+  "9:60.0" — seconds rounded to 60 without carrying the minute.
+  Fixed by rounding to tenths first, then splitting.
+- **Corrections to the live playtest report (verified in code /
+  frames):** the "Checkpoint" toast DOES fire — it is visible in
+  the headless T01-70% frame; the agent's 1–2 min sampling gaps
+  missed the 1.6 s toast. Rings DO dissolve (render check asserts
+  all dissolved after T1); the 0.35 s transition was never caught
+  by pause-stepping. The menu "Best 11:46.2" is the known polluted
+  save in that browser profile (M1 pause-stepping), not a game
+  bug. The ~190/208 deaths were unattended-gap latency artifacts,
+  not difficulty (same pattern as M1/M2). Slide/lane were not
+  meaningfully tested (no slide bar in the first two checkpoints;
+  one lane attempt confounded by a respawn) — still outstanding
+  for a real-time check, not a defect.
+- **Still owed:** a human-ear check of the music mix and a
+  real-time human feel check — the finale live playtest.
+
 ## M3 feel & juice — v0.3.0 (2026-11-22)
 
 Traversal feedback pass — every event now reads harder, and the two
