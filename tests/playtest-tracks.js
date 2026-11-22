@@ -1,4 +1,4 @@
-// Neon Apex v0.3.0 — headless eye-playtest of ALL 12 tracks (M2 gate).
+// Neon Apex v0.3.1 — headless eye-playtest of ALL 12 tracks (M2 gate).
 // Serves the local game dir, seeds a save with tracks 1-11 cleared (so all
 // 12 unlock — the same unlock rule the live game uses), then drives every
 // track with the in-game autopilot (the decision bot through the public
@@ -119,10 +119,10 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => window.__apex, null, { timeout: 30000 });
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.3.0') throw new Error(`expected version 0.3.0, got ${version}`);
+  if (version !== '0.3.1') throw new Error(`expected version 0.3.1, got ${version}`);
   const unlocks = await page.evaluate(() => window.__apex.unlocks());
   if (!Object.values(unlocks).every(Boolean)) throw new Error(`seeded save should unlock all 12 tracks: ${JSON.stringify(unlocks)}`);
-  console.log('playtest-tracks: game 0.3.0 up, seeded save unlocks all 12 tracks');
+  console.log('playtest-tracks: game 0.3.1 up, seeded save unlocks all 12 tracks');
 
   fs.mkdirSync(SHOTS_DIR, { recursive: true });
   const tracks = await page.evaluate(() => window.__apex.tracks());
@@ -178,7 +178,7 @@ try {
     for (const e of errors) console.error('  ' + e);
     throw new Error(`${errors.length} console/page error(s)`);
   }
-  fs.writeFileSync(path.join(SHOTS_DIR, 'playtest-tracks.json'), JSON.stringify({ version: '0.3.0', ranAt: new Date().toISOString(), results }, null, 2));
+  fs.writeFileSync(path.join(SHOTS_DIR, 'playtest-tracks.json'), JSON.stringify({ version: '0.3.1', ranAt: new Date().toISOString(), results }, null, 2));
   console.log('playtest-tracks: PASS — decision-bot autopilot cleared all 12 tracks in the real renderer, zero console errors');
   console.log(`playtest-tracks: screenshots in ${SHOTS_DIR} — INSPECT BY EYE before calling M2 done`);
 } finally {

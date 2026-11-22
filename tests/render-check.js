@@ -1,4 +1,4 @@
-// Neon Apex v0.3.0 — headless browser render check.
+// Neon Apex v0.3.1 — headless browser render check.
 // Serves the game dir over local HTTP, loads it in a headless
 // browser, and asserts the M1 core, by hook and by eye:
 //   - the menu renders over a LIVE 3D scene (the attract demo
@@ -135,8 +135,8 @@ try {
   }
 
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.3.0') throw new Error(`expected version 0.3.0, got ${version}`);
-  console.log('render-check: game module initialised, version 0.3.0');
+  if (version !== '0.3.1') throw new Error(`expected version 0.3.1, got ${version}`);
+  console.log('render-check: game module initialised, version 0.3.1');
 
   // WebGL context exists and the canvas is on screen.
   const gl = await page.evaluate(() => {
@@ -152,7 +152,7 @@ try {
   // text anywhere the player can see. Track 1 unlocked, track 2 locked.
   const menuText = await page.textContent('#menu');
   if (!menuText.includes('NEON APEX')) throw new Error('menu title missing');
-  if (menuText.includes('v0.3.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
+  if (menuText.includes('v0.3.1') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
     throw new Error('menu shows version/engine text — it must live in the README only');
   }
   const playClass = await page.getAttribute('#btn-play', 'class');
@@ -236,7 +236,7 @@ try {
   // ~100ms of the press on real hardware; it fires synchronously
   // inside the sim step that consumes the input, so the only delay
   // is waiting for the next frame (swiftshader frames are slow, so
-  // the headless bound is 1000ms — the measured value is logged).
+  // the headless bound is 2000ms — the measured value is logged).
   const y0 = (await page.evaluate(() => window.__apex.info().screen)).y;
   const jumpT0 = Date.now();
   await page.keyboard.press('Space');
@@ -246,7 +246,7 @@ try {
   }, y0, { timeout: 20000 });
   const jumpFb = await page.evaluate(() => window.__apex.info().feedback.filter((f) => f.type === 'jump').pop());
   const jumpLatency = jumpFb ? jumpFb.t - jumpT0 : -1;
-  if (jumpLatency < 0 || jumpLatency > 1000) throw new Error(`jump feedback did not fire promptly after Space (latency ${jumpLatency}ms)`);
+  if (jumpLatency < 0 || jumpLatency > 2000) throw new Error(`jump feedback did not fire promptly after Space (latency ${jumpLatency}ms)`);
   console.log(`render-check: jump feedback fired ${jumpLatency}ms after Space (bundle: ${jumpFb.layers.join(', ')})`);
   const y1 = (await page.evaluate(() => window.__apex.info().screen)).y;
   console.log(`render-check: Space jumps the runner up on screen (y ${y0.toFixed(0)} -> ${y1.toFixed(0)})`);

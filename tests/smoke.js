@@ -1,4 +1,4 @@
-// Neon Apex v0.3.0 — Node smoke tests for physics.js (no DOM, no Three.js).
+// Neon Apex v0.3.1 — Node smoke tests for physics.js (no DOM, no Three.js).
 import {
   VERSION, TRACKS, trackById, trackGaps, trackThreat, singleJumpDist, doubleJumpDist,
   LANES, DT, GRAVITY, JUMP_VEL, DOUBLE_JUMP_VEL, SLIDE_TIME, VOID_Y,
@@ -17,7 +17,7 @@ function check(name, cond) {
 }
 function approx(a, b, eps = 1e-9) { return Math.abs(a - b) <= eps; }
 
-check('physics version is 0.3.0', VERSION === '0.3.0');
+check('physics version is 0.3.1', VERSION === '0.3.1');
 check('12 tracks defined', TRACKS.length === 12);
 check('track ids are 1..12 in order', TRACKS.every((t, i) => t.id === i + 1));
 check('every track has a name and a hint', TRACKS.every((t) => t.name && t.hint));
