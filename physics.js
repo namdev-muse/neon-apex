@@ -1,4 +1,4 @@
-// Neon Apex v0.3.0 — pure simulation core (no DOM, no Three.js).
+// Neon Apex v0.3.1 — pure simulation core (no DOM, no Three.js).
 // A 3D neon sky-parkour runner: the runner auto-sprints forward along
 // a track of floating neon platforms (forward = +s; game.js maps s to
 // world -z). The player jumps (Space / W / Up, double-jump in air),
@@ -16,7 +16,7 @@
 // lanes with real timing decisions; a bot that jumps at random dies
 // on every track (see simulateRun + the bot harness).
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.1';
 export const LANES = [-2.4, 0, 2.4];
 export const LANE_COUNT = 3;
 export const DT = 1 / 60;

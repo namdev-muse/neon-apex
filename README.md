@@ -7,7 +7,7 @@ speed. One deep core mechanic (jump timing), a real progression loop
 feel on every event.
 
 **Live:** https://namdev-muse.github.io/neon-apex/
-**Version:** 0.3.0 (M3 feel & juice)
+**Version:** 0.3.1 (M3 feel & juice — run-cycle fix)
 **Stack:** Three.js 0.160.0 (ES modules, import map, pinned CDN), vanilla
 HTML/CSS/JS, Web Audio API synth SFX + step-sequencer music, no build
 step, static files on GitHub Pages.

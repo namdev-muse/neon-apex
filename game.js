@@ -1,4 +1,4 @@
-// Neon Apex v0.3.0 — Three.js presentation layer.
+// Neon Apex v0.3.1 — Three.js presentation layer.
 // The runner auto-sprints forward along floating neon platforms
 // (sim forward = +s, world forward = -z). Jump / double-jump /
 // slide / lane-switch with momentum; perfect landings chain speed;
@@ -286,6 +286,9 @@ const finishMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
 const CITY_COUNT = 200;
 const cityMesh = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardMaterial({ color: 0x141338, emissive: 0x1e1846, emissiveIntensity: 0.85, roughness: 0.9 }), CITY_COUNT);
 cityMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+// The instances are re-laid-out per track, but the cached bounding
+// sphere is not — disable culling rather than cull the far city.
+cityMesh.frustumCulled = false;
 scene.add(cityMesh);
 function layoutCity(track) {
   const m = new THREE.Matrix4();
@@ -360,6 +363,12 @@ const PARTICLE_MAX = 128;
 const particleMesh = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xffffff }), PARTICLE_MAX);
 particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 particleMesh.count = PARTICLE_MAX;
+// The pooled instances move every frame, but the cached bounding
+// sphere is computed once from the boot matrices (all at the
+// origin) and never recomputed — so the whole mesh was frustum-
+// culled as soon as the camera left the start. Disable culling:
+// the pool is small and the instances are always near the runner.
+particleMesh.frustumCulled = false;
 scene.add(particleMesh);
 const particles = [];
 for (let i = 0; i < PARTICLE_MAX; i++) {
@@ -367,7 +376,7 @@ for (let i = 0; i < PARTICLE_MAX; i++) {
   particleMesh.setColorAt(i, particles[i].color);
 }
 const dummy = new THREE.Object3D();
-function spawnParticles(x, y, z, colorHex, count, speed, up = 2, flat = false) {
+function spawnParticles(x, y, z, colorHex, count, speed, up = 2, flat = false, lifeMul = 1) {
   let spawned = 0;
   for (const p of particles) {
     if (spawned >= count) break;
@@ -381,9 +390,9 @@ function spawnParticles(x, y, z, colorHex, count, speed, up = 2, flat = false) {
     // Flat bursts (landing dust) spread sideways and stay low;
     // normal bursts spray up as well.
     p.vy = flat ? (Math.random() - 0.5) * up * 0.4 : (Math.random() - 0.3) * up;
-    p.maxLife = 0.45 + Math.random() * 0.35;
+    p.maxLife = (0.6 + Math.random() * 0.4) * lifeMul;
     p.life = p.maxLife;
-    p.size = 0.2 + Math.random() * 0.25;
+    p.size = 0.24 + Math.random() * 0.26;
     p.color.setHex(colorHex);
     particleMesh.setColorAt(particles.indexOf(p), p.color);
     spawned++;
@@ -416,6 +425,8 @@ function updateParticles(dt) {
 const TRAIL_MAX = 30;
 const trailMesh = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.55 }), TRAIL_MAX);
 trailMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+// Same pooled-instances culling trap as the particle mesh (above).
+trailMesh.frustumCulled = false;
 scene.add(trailMesh);
 const trail = [];
 for (let i = 0; i < TRAIL_MAX; i++) trail.push({ alive: false, x: 0, y: 0, z: 0, life: 0 });
@@ -615,10 +626,13 @@ function feedback(type, extra = {}) {
   const quiet = state.phase === 'menu';
   if (layers.includes('particles')) {
     const color = { jump: 0x22d3ee, doubleJump: 0x67e8f9, slide: 0x9db8d6, land: 0x22d3ee, perfect: 0xf472b6, orb: 0xfbbf24, checkpoint: 0x22d3ee, death: 0xfb7185, finish: 0xfbbf24, lane: 0x22d3ee }[type] || 0x22d3ee;
-    // M3: bigger bursts — landings kick up a flat dust ring at the
-    // feet, deaths and perfects throw far more grains.
-    const count = type === 'death' ? 40 : type === 'perfect' ? 26 : type === 'land' ? 18 : type === 'jump' || type === 'doubleJump' ? 14 : 12;
-    spawnParticles(wx, type === 'land' ? 0.15 : wy, wz, color, count, type === 'death' ? 6 : 3.5, 2, type === 'land');
+    // v0.3.1: jump/land bursts grew (14/18 -> 20/24, then 26/28)
+    // and live 1.5x longer — the live playtest's timed frames
+    // caught the big death burst but the small cyan jump burst was
+    // easy to miss, and the timed diag confirmed it reads faintly.
+    const count = type === 'death' ? 40 : type === 'perfect' ? 26 : type === 'land' ? 28 : type === 'jump' || type === 'doubleJump' ? 26 : 12;
+    const lifeMul = type === 'jump' || type === 'doubleJump' || type === 'land' ? 1.5 : 1;
+    spawnParticles(wx, type === 'land' ? 0.15 : wy, wz, color, count, type === 'death' ? 6 : 3.5, 2, type === 'land', lifeMul);
   }
   if (layers.includes('flash') && !quiet) flash();
   if (layers.includes('slowMo')) { slowMoT = 0.7; }
@@ -670,8 +684,11 @@ function resetStackTo(id) {
 // Menu
 // ---------------------------------------------------------------------
 function fmtTime(t) {
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
+  // Round to tenths FIRST, then split — otherwise 9:59.97 formats
+  // as "9:60.0" (the live playtest caught this at the 10:00 mark).
+  const total = Math.round(t * 10) / 10;
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
 function buildMenu() {
@@ -1059,20 +1076,31 @@ function animate() {
   if (run) {
     // Runner mesh follows the sim (screen space = world space here:
     // the camera looks down -z, so world +x is screen right).
-    // M3 run cycle: while grounded the body bobs with the stride,
-    // leans forward with speed, and the side fins pump like arms;
-    // in the air it tucks; sliding it leans low and forward.
+    // M3 run cycle — and v0.3.1: the first version moved in planes
+    // the chase camera cannot see (forward lean on a symmetric
+    // capsule, fins swinging around X only foreshorten from
+    // behind). The live playtest proved it: opposite stride phases
+    // looked identical. This version moves in planes the camera
+    // DOES see: vertical bob, side-to-side roll, fins splaying
+    // around Z, and a stretch pulse on the body.
     const stride = run.s * 2.4;
-    const bob = run.grounded && run.sliding <= 0 ? Math.abs(Math.sin(stride)) * 0.07 : 0;
+    const strideSin = Math.sin(stride);
+    const bob = run.grounded && run.sliding <= 0 ? Math.abs(strideSin) * 0.16 : 0;
     const lean = run.sliding > 0 ? -0.35 : run.grounded ? -0.06 - Math.min(run.speed, 18) * 0.008 : -0.18;
     runnerGroup.position.set(run.x, run.y + 0.95 + bob, -run.s);
-    const targetScaleY = run.sliding > 0 ? 0.55 : (squashT > 0 ? 0.8 : (run.grounded ? 1 : 1.12));
+    const targetScaleY = run.sliding > 0 ? 0.55 : (squashT > 0 ? 0.8 : (run.grounded ? 1 + Math.abs(strideSin) * 0.06 : 1.12));
     runnerGroup.scale.y += (targetScaleY - runnerGroup.scale.y) * Math.min(1, rawDt * 14);
     runnerGroup.rotation.x = lean;
-    runnerGroup.rotation.z = THREE.MathUtils.clamp((run.x - LANES[run.laneTarget + 1]) * -0.06, -0.25, 0.25);
-    const swing = run.grounded && run.sliding <= 0 ? Math.sin(stride) * 0.55 : 0;
-    finL.rotation.x = swing;
-    finR.rotation.x = -swing;
+    const laneTilt = THREE.MathUtils.clamp((run.x - LANES[run.laneTarget + 1]) * -0.06, -0.25, 0.25);
+    const roll = run.grounded && run.sliding <= 0 ? strideSin * 0.10 : 0;
+    runnerGroup.rotation.z = laneTilt + roll;
+    // Fins splay around Z (visible from behind); the old X-swing
+    // only foreshortened them.
+    const splay = run.grounded && run.sliding <= 0 ? strideSin * 0.5 : 0;
+    finL.rotation.z = splay;
+    finR.rotation.z = -splay;
+    finL.rotation.x = 0;
+    finR.rotation.x = 0;
     // Moving platforms + orbs + barriers pulse.
     const t = run.time;
     for (const pm of platformMeshes) {
