@@ -1,5 +1,59 @@
 # Neon Apex — devlog
 
+## M4 progression & depth — v0.4.0 (2026-11-22)
+
+One additional mode, done well: **Time Attack**. Why this mode:
+it turns every orb into a survival decision, every death into lost
+time, and the perfect-landing speed chain into a clock-saver — the
+same jump-timing skill under a different pressure, reusing the
+whole track set and bot, no new geometry to learn.
+
+- **Clock:** starts at 60% of par per track (T1: 11s, T12: 14s).
+  Ground orb +1.5s, jump orb +2.5s (riskier = more time),
+  checkpoint +2s, death −3s off the clock on top of the seconds
+  the re-run takes. Finishing banks the clock left at 25 pts/s.
+- **Tuning (decision bot vs orb-blind bot, all 12):** the bot
+  clears 12/12 with 0 deaths (clock left 1.4s on T6 — the
+  tightest — up to 17.5s on orb-rich T7); the orb-blind bot runs
+  dry on T2–T6, proving the clock is fuelled by orbs, not by the
+  budget. TA difficulty tracks orb density, not track number.
+- **A TA-aware bot was tried and reverted:** loosening the orb
+  steering/jump windows made the bot DIE on T2/T3/T5/T7 — chasing
+  orbs into lane switches near an edge is how a bot dies. The
+  conservative bot + 0.6 budget clears all 12.
+- **Medals (best-time gates):** gold = beat par, silver = within
+  5s of par, bronze = any clear. Stored on the best record, shown
+  on the track card and the clear screen. Old saves derive the
+  medal from the stored best time.
+- **Orb economy:** jump orbs now pay **100** points vs 50 for
+  ground orbs — the risk pays double, in both modes. Lifetime
+  **orb bank**: every orb from a cleared track is banked for good
+  (menu line); a run that ends in a fall banks nothing.
+- **Presentation:** mode toggle on the menu (Normal / Time
+  Attack, subordinate to Play); cards and best lines re-label per
+  mode; TA HUD shows the countdown (red + pulsing under 5s); orb
+  pops read "+1.5s"/"+2.5s"; checkpoint toast "Checkpoint +2s";
+  death toast appends "(−3s)"; a dedicated Time Up screen (Retry
+  / Main Menu, Enter retries); clear screen names the medal and
+  the bank total.
+- **Verification:** smoke **592/592**; bot PASS (normal + TA
+  gates); render check PASS, zero console errors (TA HUD clock
+  ticks down, TA autopilot clears T1 with 13.0s left, TA best
+  saved, bank 9 → 18, time-up path + Retry at full budget,
+  medal bronze on the normal clear); TA playtest sweep PASS —
+  autopilot clears all 12 in Time Attack, 0 deaths, zero console
+  errors, 24 frames inspected by eye (T01-70: "Checkpoint +2s"
+  toast, finish gate ahead; T07-35: "PERFECT x3 +200" pop, chain
+  x3 hot; T12-70: countdown 0:04.9 in red, over-bar + wall +
+  ring ahead). Size sweep PASS by eye (menu at 1280x720,
+  2560x1080, 1080x2340 — no clipping or overlap; the portrait
+  stack is clean and the attract demo reads through the panel).
+  Two harness flakes fixed: screenshot font-load timeout 30s →
+  60s, and a stale btn-menu-complete click after the TA flow ends
+  on the menu.
+- **Still owed:** a human-ear check of the music mix and a
+  real-time human feel check — the finale live playtest.
+
 ## M3 fix-up — v0.3.1 (2026-11-22)
 
 The live-browser T1 playtest of v0.3.0 came back NO-GO on feel
