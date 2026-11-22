@@ -1,4 +1,4 @@
-// Neon Apex v0.1.0 — Three.js presentation layer.
+// Neon Apex v0.2.0 — Three.js presentation layer.
 // The runner auto-sprints forward along floating neon platforms
 // (sim forward = +s, world forward = -z). Jump / double-jump /
 // slide / lane-switch with momentum; perfect landings chain speed;
@@ -201,7 +201,7 @@ let renderer = null;
 const container = document.getElementById('game-container');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x070818);
-scene.fog = new THREE.FogExp2(0x070818, 0.010);
+scene.fog = new THREE.FogExp2(0x070818, 0.007);
 const camera = new THREE.PerspectiveCamera(FOV_BASE, window.innerWidth / window.innerHeight, 0.1, 600);
 camera.position.set(0, 3.6, 7.5);
 
@@ -218,7 +218,12 @@ const unitBoxEdges = new THREE.EdgesGeometry(unitBox);
 const orbGeo = new THREE.IcosahedronGeometry(0.45, 0);
 const platformMat = new THREE.MeshStandardMaterial({ color: 0x4a3590, emissive: 0x241547, emissiveIntensity: 1.0, roughness: 0.55, metalness: 0.25 });
 const wallMat = new THREE.MeshStandardMaterial({ color: 0x9d174d, emissive: 0xf472b6, emissiveIntensity: 0.9, roughness: 0.4, metalness: 0.2 });
-const overMat = new THREE.MeshStandardMaterial({ color: 0x9d174d, emissive: 0xec4899, emissiveIntensity: 0.8, roughness: 0.4, metalness: 0.2 });
+// Overhead bars are ORANGE, not magenta: a hanging beam with a clear
+// gap underneath reads "slide under", while a solid magenta wall
+// reads "don't touch". The beam hangs at y 2.5–3.0 on two thin posts
+// at the lane edges, so the slide gap underneath is unmistakable.
+const overMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, emissive: 0xfb923c, emissiveIntensity: 0.9, roughness: 0.4, metalness: 0.2 });
+const overPostMat = new THREE.MeshStandardMaterial({ color: 0x431407, emissive: 0xea580c, emissiveIntensity: 0.7, roughness: 0.5, metalness: 0.2 });
 const orbMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xfbbf24, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.4 });
 const checkpointMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
 const finishMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
@@ -423,15 +428,35 @@ function buildTrackMeshes(track) {
     let mesh;
     if (b.kind === 'wall') {
       mesh = new THREE.Mesh(unitBox, wallMat);
-      mesh.scale.set(2.3, 3.0, 0.8);
+      // 2.6 wide matches the physics hitbox (lane ±1.3) exactly — the
+      // M1 wall read wider than it looked because the mesh was 2.3.
+      mesh.scale.set(2.6, 3.0, 0.8);
       mesh.position.set(x, 1.5, -b.s);
+      trackGroup.add(mesh);
+      barrierMeshes.push(mesh);
     } else {
-      mesh = new THREE.Mesh(unitBox, overMat);
-      mesh.scale.set(2.3, 2.0, 0.8);
-      mesh.position.set(x, 2.0, -b.s);
+      // Hanging beam (2.3 × 0.5 at y 2.75) on two posts at the lane
+      // edges: the slide gap underneath reads at a glance, and the
+      // orange reads as a different verb from the magenta wall.
+      const beam = new THREE.Mesh(unitBox, overMat);
+      beam.scale.set(2.3, 0.5, 0.8);
+      beam.position.set(x, 2.75, -b.s);
+      trackGroup.add(beam);
+      barrierMeshes.push(beam);
+      for (const px of [-1.06, 1.06]) {
+        const post = new THREE.Mesh(unitBox, overPostMat);
+        post.scale.set(0.18, 2.5, 0.18);
+        post.position.set(x + px, 1.25, -b.s);
+        trackGroup.add(post);
+        barrierMeshes.push(post);
+      }
+      // A small tab under the beam centre marks the slide line.
+      const chev = new THREE.Mesh(unitBox, overMat);
+      chev.scale.set(0.5, 0.28, 0.84);
+      chev.position.set(x, 2.42, -b.s);
+      trackGroup.add(chev);
+      barrierMeshes.push(chev);
     }
-    trackGroup.add(mesh);
-    barrierMeshes.push(mesh);
   }
   for (const o of track.orbs) {
     const mesh = new THREE.Mesh(orbGeo, orbMat);

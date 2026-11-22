@@ -7,7 +7,7 @@ speed. One deep core mechanic (jump timing), a real progression loop
 feel on every event.
 
 **Live:** https://namdev-muse.github.io/neon-apex/
-**Version:** 0.1.0 (M1 core — 6 tracks)
+**Version:** 0.2.0 (M2 track craft — 12 tracks)
 **Stack:** Three.js 0.160.0 (ES modules, import map, pinned CDN), vanilla
 HTML/CSS/JS, Web Audio API synth SFX + step-sequencer music, no build
 step, static files on GitHub Pages.
@@ -16,8 +16,8 @@ step, static files on GitHub Pages.
 
 - You auto-sprint forward. There is no brake — every gap is a decision.
 - **Space / W / Up** — jump (press again in the air for a double jump).
-- **S / Down** — slide under the pink overhead bars. You cannot jump over them.
-- **A / D or Left / Right** — switch lanes to dodge the tall pink walls.
+- **S / Down** — slide under the orange overhead bars. You cannot jump over them.
+- **A / D or Left / Right** — switch lanes to dodge the tall magenta walls.
 - Land **dead-centre** on a platform to chain a **speed multiplier**.
 - Collect **gold orbs** (the high ones only count mid-jump). Touch a
   **checkpoint ring** and a fall sends you back there.
@@ -27,7 +27,7 @@ step, static files on GitHub Pages.
 - **P** pause · **M** mute · **R** restart. Touch: tap to jump, swipe
   down to slide, swipe left/right to switch lanes.
 
-## Tracks (M1)
+## Tracks
 
 | # | Track | Identity |
 |---|-------|----------|
@@ -37,21 +37,27 @@ step, static files on GitHub Pages.
 | 4 | Skyline Sprint | Moving platforms + the first double-jump gap |
 | 5 | Void Waltz | Everything mixed at higher speed |
 | 6 | Apex Run | Tightest, fastest, everything at once |
+| 7 | Golden Mile | Orb-heavy — gold lines in risky lanes |
+| 8 | Slalom City | Wall slalom — the open lane never stays put |
+| 9 | Low Ceiling | Over-bar heavy — slide chains, double bars |
+| 10 | Drift Fields | Moving-platform heavy, wide 1.4 sway |
+| 11 | Double Trouble | Long gaps (7–10.5u) — double jump is the only way across |
+| 12 | Apex Prime | Everything at full speed, three checkpoints |
 
 ## Anti-slop
 
 No auto-jump, no assist, no "jump now" prompt, no landing preview —
 jump timing is the skill. A bot that jumps/slides/switches lanes at
 random cannot finish any track on 5 lives; a bot that plays with real
-timing decisions clears all 6 with no deaths. Lane/jump behaviour is
+timing decisions clears all 12 with no deaths. Lane/jump behaviour is
 asserted in **screen space** (the lane the player sees matches the
 physics).
 
 ## Tests
 
 ```sh
-node tests/smoke.js        # 315 physics checks (no DOM)
-node tests/bot.js          # decision bot clears all 6; random bots fail all 6 on 5 lives
+node tests/smoke.js        # 565 physics checks (no DOM)
+node tests/bot.js          # decision bot clears all 12; random bots fail all 12 on 5 lives
 node tests/render-check.js # headless Chromium: menu, screen-space movement, autopilot clears track 1
 node tests/screenshots.js # README captures + 3-resolution size sweep
 ```

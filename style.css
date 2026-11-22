@@ -1,4 +1,4 @@
-/* Neon Apex v0.1.0 — neon sky-parkour runner UI. Reference 1920x1080,
+/* Neon Apex v0.2.0 — neon sky-parkour runner UI. Reference 1920x1080,
    expand scaling; anchors + containers, no absolute-pixel layout;
    safe-area insets; overshoot pops on every panel and button. */
 :root {
@@ -51,7 +51,7 @@ body.high-contrast { --panel: rgba(4, 6, 24, 0.94); --ink: #ffffff; --muted: #d7
   text-align: center;
   animation: pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-.panel-menu { width: min(94vw, 980px); }
+.panel-menu { width: min(94vw, 1120px); }
 @keyframes pop-in {
   0% { opacity: 0; transform: scale(0.86) translateY(14px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
@@ -112,11 +112,12 @@ h3 { color: var(--gold); margin: 1em 0 0.3em; letter-spacing: 0.06em; }
 .set-hint { color: var(--muted); font-size: 0.95rem; margin: 0.7em 0 0; min-height: 2.4em; }
 
 /* --- track cards --- */
-.track-select { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.track-select { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .track-card {
   border: 1px solid var(--border); border-radius: 12px;
   background: rgba(34, 211, 238, 0.06);
-  padding: 10px 12px; cursor: pointer; text-align: left;
+  padding: 8px 10px; cursor: pointer; text-align: left;
+  min-width: 0;
   transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
   animation: pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
@@ -130,9 +131,9 @@ h3 { color: var(--gold); margin: 1em 0 0.3em; letter-spacing: 0.06em; }
 .track-card.selected { border-color: var(--cyan); background: rgba(34, 211, 238, 0.2); box-shadow: 0 0 18px rgba(34, 211, 238, 0.4); }
 .track-card.locked { opacity: 0.5; cursor: not-allowed; }
 .track-card.locked:hover { transform: none; box-shadow: none; }
-.track-name { font-weight: 800; font-size: 1.02rem; }
-.track-meta { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
-.track-best { color: var(--gold); font-size: 0.85rem; margin-top: 2px; min-height: 1.1em; }
+.track-name { font-weight: 800; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-meta { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+.track-best { color: var(--gold); font-size: 0.8rem; margin-top: 2px; min-height: 1.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* --- HUD --- */
 #hud {
@@ -202,7 +203,7 @@ h3 { color: var(--gold); margin: 1em 0 0.3em; letter-spacing: 0.06em; }
 .complete-best { color: var(--gold); margin: 0.3em 0; }
 
 /* --- portrait / small screens --- */
-@media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
+@media (max-width: 760px), (orientation: portrait) and (max-width: 1100px) {
   .panel-menu { grid-template-columns: 1fr; }
   .track-select { grid-template-columns: repeat(2, 1fr); }
   #hud { flex-wrap: wrap; }
