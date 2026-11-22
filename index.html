@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Neon Apex — 3D Neon Sky-Parkour Runner</title>
+<meta name="description" content="Neon Apex: a 3D neon sky-parkour runner. Sprint across floating platforms, time your jumps, slide under barriers, switch lanes — land dead-centre to chain speed.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game-container"></div>
+<div id="hit-flash" class="hit-flash" aria-hidden="true"></div>
+<div id="low-speed" class="low-speed" aria-hidden="true"></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-left">
+    <span id="hud-track">Track 1 — First Steps</span>
+    <span id="hud-time">0:00.0</span>
+    <span id="hud-best" class="hud-best">Best —</span>
+  </div>
+  <div class="hud-mid">
+    <span id="hud-score">Score 0</span>
+    <span id="hud-chain" class="hud-chain">Chain x1</span>
+    <span id="hud-orbs">Orbs 0/9</span>
+    <span id="hud-deaths">Deaths 0</span>
+  </div>
+  <div class="hud-right">
+    <button id="btn-mute-hud" class="icon-btn" type="button" aria-label="Toggle sound">Sound: On</button>
+    <button id="btn-pause" class="icon-btn" type="button" aria-label="Pause game">Pause</button>
+  </div>
+</div>
+<div id="hud-toast" class="hud-toast" aria-hidden="true"></div>
+<div id="pops" class="pops" aria-hidden="true"></div>
+<div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+
+<!-- Main menu -->
+<div id="menu" class="overlay">
+  <div class="panel panel-menu">
+    <h1>NEON APEX</h1>
+    <p class="tagline">Sprint the skyline. Jump the gaps. Land dead-centre — speed is the reward.</p>
+    <p id="webgl-error" class="webgl-error hidden">3D graphics couldn't start in this browser — Neon Apex needs WebGL. Try a recent Chrome, Edge or Firefox on a device with graphics support.</p>
+    <div class="menu-col menu-actions">
+      <button id="btn-play" class="btn primary" type="button">Play</button>
+      <button id="btn-howto" class="btn" type="button">How to Play</button>
+      <button id="btn-settings" class="btn" type="button">Settings</button>
+      <button id="btn-mute-menu" class="btn small" type="button">Sound: On</button>
+      <p id="menu-best" class="menu-best"></p>
+      <p id="menu-hint" class="menu-best"></p>
+    </div>
+    <div class="menu-col menu-setup">
+      <div id="track-select" class="track-select" aria-label="Track select"></div>
+      <p id="track-hint" class="set-hint"></p>
+    </div>
+  </div>
+</div>
+
+<!-- How to play -->
+<div id="howto" class="overlay hidden">
+  <div class="panel">
+    <h2>How to Play</h2>
+    <ul class="howto-list">
+      <li>You <strong>auto-sprint</strong> forward across floating neon platforms. There is no brake — every gap is a decision.</li>
+      <li><strong>Jump</strong> with <strong>Space / W / Up</strong>. Press again in the air for a <strong>double jump</strong> — the long gaps need it.</li>
+      <li><strong>Slide</strong> under the pink overhead bars with <strong>S / Down</strong>. You cannot jump over them — they hang too low.</li>
+      <li><strong>Switch lanes</strong> with <strong>A / D or Left / Right</strong> to dodge the tall pink walls. Jumping into a wall ends the run.</li>
+      <li>Land <strong>dead-centre</strong> on a platform to chain a <strong>speed multiplier</strong> — the chain is the score.</li>
+      <li>Collect <strong>gold orbs</strong> — the high ones only count mid-jump. Touch a <strong>checkpoint ring</strong> and a fall sends you back there, not to the start.</li>
+      <li>Fall into the void or hit a barrier and you reset to the last checkpoint. Reach the <strong>gold finish gate</strong> to clear the track.</li>
+      <li>Your <strong>best time</strong> is saved per track — beat it. Clearing a track unlocks the next one.</li>
+    </ul>
+    <h3>Controls</h3>
+    <ul class="howto-list">
+      <li>Space / W / Up: jump (again in air: double jump) &middot; S / Down: slide &middot; A / D or Left / Right: switch lanes</li>
+      <li>P: pause &middot; M: mute &middot; R: restart</li>
+      <li>Touch: tap to jump, swipe down to slide, swipe left / right to switch lanes</li>
+      <li>Esc closes a panel &middot; Enter confirms on menus</li>
+    </ul>
+    <button id="btn-howto-close" class="btn primary" type="button">Got it</button>
+  </div>
+</div>
+
+<!-- Settings -->
+<div id="settings" class="overlay hidden">
+  <div class="panel">
+    <h2>Settings</h2>
+    <label class="slider-row">Volume
+      <input id="volume-range" type="range" min="0" max="100" value="60" aria-label="Volume">
+      <span id="volume-value">60%</span>
+    </label>
+    <label class="slider-row">Screen shake
+      <input id="shake-range" type="range" min="0" max="100" value="100" aria-label="Screen shake strength">
+      <span id="shake-value">100%</span>
+    </label>
+    <label class="toggle-row">Music
+      <input id="music-toggle" type="checkbox" checked aria-label="Music on or off">
+    </label>
+    <label class="toggle-row">Sound effects
+      <input id="sfx-toggle" type="checkbox" checked aria-label="Sound effects on or off">
+    </label>
+    <label class="toggle-row">Reduce flashing
+      <input id="reduce-flashing" type="checkbox" aria-label="Reduce flashing — no bright flashes">
+    </label>
+    <label class="slider-row">Text size
+      <select id="text-size-select" aria-label="Text size">
+        <option value="1">Normal</option>
+        <option value="1.2">Large</option>
+        <option value="1.4">Extra large</option>
+      </select>
+    </label>
+    <label class="toggle-row">High contrast
+      <input id="high-contrast-toggle" type="checkbox" aria-label="High contrast — brighter text and panels">
+    </label>
+    <button id="btn-settings-close" class="btn primary" type="button">Back to Menu</button>
+  </div>
+</div>
+
+<!-- Track complete -->
+<div id="complete" class="overlay hidden">
+  <div class="panel">
+    <h2>Track Clear</h2>
+    <p id="complete-score" class="big-score">Score 0</p>
+    <p id="complete-detail"></p>
+    <p id="complete-best" class="complete-best"></p>
+    <p id="complete-orbs" class="complete-best"></p>
+    <button id="btn-next" class="btn primary" type="button">Next Track</button>
+    <button id="btn-replay" class="btn" type="button">Play Again</button>
+    <button id="btn-menu-complete" class="btn" type="button">Main Menu</button>
+  </div>
+</div>
+
+<!-- Pause -->
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h2>Paused</h2>
+    <button id="btn-resume" class="btn primary" type="button">Resume</button>
+    <button id="btn-restart" class="btn" type="button">Restart Track</button>
+    <button id="btn-quit" class="btn" type="button">Quit to Menu</button>
+    <label class="slider-row">Screen shake
+      <input id="shake-range-pause" type="range" min="0" max="100" value="100" aria-label="Screen shake strength">
+      <span id="shake-value-pause">100%</span>
+    </label>
+    <button id="btn-mute-pause" class="btn small" type="button">Sound: On</button>
+  </div>
+</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
