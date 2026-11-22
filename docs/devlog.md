@@ -1,5 +1,35 @@
 # Neon Apex — devlog
 
+## M2 track craft — v0.2.0 (2026-11-22)
+
+Six new hand-crafted tracks (T7–T12, 280–392 units each) with distinct
+identities, difficulty curve tuned by threat (93 → 338, every step
+monotonic, ratios 1.02–1.35, no cliff): Golden Mile (orb-heavy, 21
+orbs), Slalom City (wall slalom), Low Ceiling (slide chains, double
+bars), Drift Fields (moving platforms, wide 1.4 sway), Double Trouble
+(long gaps 7–10.5u), Apex Prime (everything at speed 16, three
+checkpoints). M1 carry-overs fixed: overhead bars are now orange
+hanging beams on posts with a slide-gap underneath (walls stay solid
+magenta — the two verbs finally read differently); wall meshes widened
+2.3 → 2.6 to match the physics hitbox exactly; fog 0.010 → 0.007 so
+the track ahead reads further; T1 teaches the wall before the first
+checkpoint and its finish slalom gaps softened 3.5 → 3. Menu track grid
+is 3 columns now (12 cards fit at 1280x720 without scrolling).
+
+**Bot findings while building the tracks**
+
+- T8 died once in the first bot run: a wall on the checkpoint
+  platform sat in lane 0 exactly where the orb line in lane 1 pulled
+  the runner across — an unfair compound (a human pre-positioning for
+  the next platform's slalom would die the same way). Fixed by
+  moving the orbs to lane -1, then removing the wall outright: the
+  bot's lane rules (escape-wall vs line-up-next-platform) flip-flopped
+  across the |x| = 1.3 boundary while crossing the wall lane.
+  Lesson: never put a wall in the lane a player must cross to set up
+  for the next platform.
+- Decision bot now clears all 12 with 0 deaths; random bots fail all
+  12 on 5 lives; no-input dies everywhere. Smoke 565 checks.
+
 ## M1 core — v0.1.0 (2026-11-22, local tree only)
 
 Game #7, first 3D game of the next loop (games #7–#9 are 3D, #10 is 2D).
