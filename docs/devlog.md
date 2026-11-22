@@ -1,5 +1,49 @@
 # Neon Apex — devlog
 
+## M3 feel & juice — v0.3.0 (2026-11-22)
+
+Traversal feedback pass — every event now reads harder, and the two
+visual warts from the M1/M2 playtests are fixed.
+
+- **Checkpoint rings dissolve.** A ring fades + shrinks over 0.35 s
+  once the runner passes through it, then hides. In M2 the solid
+  torus swept the camera and hid the track for a beat (T01 70%
+  frame was almost all cyan arc). Rings now have per-ring cloned
+  materials so each dissolves independently; the render check
+  asserts all rings dissolved after the autopilot clears T1.
+- **Runner run cycle.** While grounded the body bobs with the
+  stride, leans forward with speed, and the side fins pump like
+  arms; in the air it tucks; sliding it crouches low and forward
+  (squash 0.55 + forward lean). The capsule finally runs instead
+  of gliding.
+- **Particles read at speed.** Pool 72 → 128, grains bigger
+  (0.20–0.45), bursts bigger (death 40, perfect 26, jump 14);
+  landings kick up a flat dust ring at the feet; the trail is
+  longer (30 dots) and fattens as the perfect chain grows, so a
+  hot run visibly streaks. Shake amplitude up slightly (×1.1).
+- **Camera polish.** Lookahead now scales with speed (12 + 0.4×
+  speed ahead), landings dip the camera 0.28 on impact, jump FOV
+  kick and death slow-mo unchanged.
+- **Audio deepening.** Jump / double-jump / slide each got a
+  band-passed noise whoosh layered under the tone, so the ear
+  reads "movement" separately from "event". Music is now a
+  16-step loop: the A-minor bass pulse, a quiet pentatonic arp
+  on the off-steps, and a soft A2+E3 pad swell at the top of
+  each loop. The render check asserts the sequencer advances
+  during a run; a human-ear check of the mix is still owed at
+  the finale live playtest.
+- **Feedback latency measured.** The jump bundle fires
+  synchronously inside the sim step that consumes the input —
+  one frame by construction. Render check logs the measured
+  Space→bundle latency (swiftshader frames are slow; the bound
+  is 1000 ms headless, ~100 ms target on real hardware).
+- **Accessibility toggles verified in-browser.** The
+  reduce-flashing toggle now has a direct test: firing a death
+  bundle with it on shows no hit flash; off shows it. Shake 0
+  still kills shakeAmp (existing check).
+- Also folded in: `tests/playtest-tracks.js` + the `playtest`
+  npm script, which were local-only since M2.
+
 ## M2 track craft — v0.2.0 (2026-11-22)
 
 Six new hand-crafted tracks (T7–T12, 280–392 units each) with distinct
