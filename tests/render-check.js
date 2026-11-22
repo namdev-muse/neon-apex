@@ -1,4 +1,4 @@
-// Neon Apex v0.2.0 — headless browser render check.
+// Neon Apex v0.3.0 — headless browser render check.
 // Serves the game dir over local HTTP, loads it in a headless
 // browser, and asserts the M1 core, by hook and by eye:
 //   - the menu renders over a LIVE 3D scene (the attract demo
@@ -135,8 +135,8 @@ try {
   }
 
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.2.0') throw new Error(`expected version 0.2.0, got ${version}`);
-  console.log('render-check: game module initialised, version 0.2.0');
+  if (version !== '0.3.0') throw new Error(`expected version 0.3.0, got ${version}`);
+  console.log('render-check: game module initialised, version 0.3.0');
 
   // WebGL context exists and the canvas is on screen.
   const gl = await page.evaluate(() => {
@@ -152,7 +152,7 @@ try {
   // text anywhere the player can see. Track 1 unlocked, track 2 locked.
   const menuText = await page.textContent('#menu');
   if (!menuText.includes('NEON APEX')) throw new Error('menu title missing');
-  if (menuText.includes('v0.2.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
+  if (menuText.includes('v0.3.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
     throw new Error('menu shows version/engine text — it must live in the README only');
   }
   const playClass = await page.getAttribute('#btn-play', 'class');
@@ -232,12 +232,22 @@ try {
 
   // Jump is asserted in SCREEN space too: Space must raise the
   // runner on screen (screen y decreases). Poll while airborne.
+  // M3: measure feedback latency — the jump bundle must fire within
+  // ~100ms of the press on real hardware; it fires synchronously
+  // inside the sim step that consumes the input, so the only delay
+  // is waiting for the next frame (swiftshader frames are slow, so
+  // the headless bound is 1000ms — the measured value is logged).
   const y0 = (await page.evaluate(() => window.__apex.info().screen)).y;
+  const jumpT0 = Date.now();
   await page.keyboard.press('Space');
   await page.waitForFunction((yy) => {
     const i = window.__apex.info();
     return i && i.screen.y < yy - 20;
   }, y0, { timeout: 20000 });
+  const jumpFb = await page.evaluate(() => window.__apex.info().feedback.filter((f) => f.type === 'jump').pop());
+  const jumpLatency = jumpFb ? jumpFb.t - jumpT0 : -1;
+  if (jumpLatency < 0 || jumpLatency > 1000) throw new Error(`jump feedback did not fire promptly after Space (latency ${jumpLatency}ms)`);
+  console.log(`render-check: jump feedback fired ${jumpLatency}ms after Space (bundle: ${jumpFb.layers.join(', ')})`);
   const y1 = (await page.evaluate(() => window.__apex.info().screen)).y;
   console.log(`render-check: Space jumps the runner up on screen (y ${y0.toFixed(0)} -> ${y1.toFixed(0)})`);
   // Wait for the landing: the runner must come back down to the ground.
@@ -246,6 +256,14 @@ try {
     return i && i.grounded;
   }, null, { timeout: 20000 });
   console.log('render-check: runner lands back on the platform after the jump');
+
+  // M3: the music sequencer advances while a run is live (bass +
+  // arp + pad layers all schedule through the same step counter).
+  await page.waitForTimeout(3000);
+  const musicStep = await page.evaluate(() => window.__apex.info().audio && window.__apex.info().audio.musicStep);
+  if (musicStep === null || musicStep === undefined) throw new Error('no audio context after starting a run — music cannot play');
+  if (musicStep <= 0) throw new Error(`music sequencer did not advance during the run (musicStep ${musicStep})`);
+  console.log(`render-check: music sequencer advancing (musicStep ${musicStep} after 3s of running)`);
 
   // The canvas must actually update during a run (a frozen render
   // loop still leaves sim state looking alive).
@@ -285,6 +303,13 @@ try {
     }
   }
   console.log('render-check: jump/perfect/orb/land feedback bundles complete (5+ layers each)');
+  // M3: the checkpoint rings dissolved as the runner passed them —
+  // no solid torus left to sweep the camera (the M2 wart).
+  const rings = await page.evaluate(() => window.__apex.rings());
+  if (!rings.length) throw new Error('no checkpoint rings found on track 1');
+  const undissolved = rings.filter((r) => !r.done || r.opacity > 0.05 || r.visible);
+  if (undissolved.length) throw new Error(`checkpoint rings did not dissolve after passing: ${JSON.stringify(undissolved)}`);
+  console.log(`render-check: all ${rings.length} checkpoint rings dissolved after passing (fade + shrink, then hidden)`);
   // The complete screen shows, with the best time saved.
   await page.waitForFunction(() => window.__apex.state.phase === 'complete', null, { timeout: 5000 });
   const compText = await page.textContent('#complete');
@@ -357,6 +382,24 @@ try {
   await page.evaluate(() => window.__apex.setShake(1));
   console.log('render-check: shake 0 suppresses shakeAmp even after a jump; restored to 1');
 
+  // M3: reduce-flashing suppresses the hit flash, and turning it
+  // off brings the flash back. testFeedback fires a death bundle
+  // on demand so the toggle is asserted directly, not by staging
+  // a real death.
+  await page.evaluate(() => window.__apex.setReduceFlashing(true));
+  const flashOff = await page.evaluate(() => {
+    window.__apex.testFeedback('death');
+    return document.getElementById('hit-flash').classList.contains('show');
+  });
+  if (flashOff) throw new Error('reduce-flashing on must suppress the hit flash');
+  await page.evaluate(() => window.__apex.setReduceFlashing(false));
+  const flashOn = await page.evaluate(() => {
+    window.__apex.testFeedback('death');
+    return document.getElementById('hit-flash').classList.contains('show');
+  });
+  if (!flashOn) throw new Error('reduce-flashing off must allow the hit flash');
+  console.log('render-check: reduce-flashing toggle suppresses/restores the hit flash');
+
   // Settings persist across a reload: Large text + high contrast.
   await page.keyboard.press('p');
   await page.waitForFunction(() => window.__apex.state.phase === 'paused', null, { timeout: 5000 });
@@ -404,7 +447,7 @@ try {
     for (const e of errors) console.error('  ' + e);
     throw new Error(`${errors.length} console/page error(s)`);
   }
-  console.log('render-check: PASS — menu, screen-space movement + jump, autopilot clears track 1, void death + checkpoint reset, pause/resume/restart, settings persist, touch tap jumps, zero console errors');
+  console.log('render-check: PASS — menu, screen-space movement + jump, autopilot clears track 1, void death + checkpoint reset, pause/resume/restart, settings persist, touch tap jumps, M3 feel (jump feedback latency, music sequencer, ring dissolve, reduce-flashing toggle), zero console errors');
 } finally {
   if (browser) await browser.close();
   server.close();
