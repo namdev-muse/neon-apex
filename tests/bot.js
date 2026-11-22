@@ -1,4 +1,4 @@
-// Neon Apex v0.1.0 — bot harness: the decision bot plays every
+// Neon Apex v0.2.0 — bot harness: the decision bot plays every
 // track to completion through the public stepRun + policy hooks, and
 // the anti-slop gate asserts a bot that jumps/slides/switches lanes
 // at RANDOM cannot finish any track on 5 lives — random flailing

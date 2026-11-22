@@ -1,4 +1,4 @@
-// Neon Apex v0.1.0 — headless browser render check.
+// Neon Apex v0.2.0 — headless browser render check.
 // Serves the game dir over local HTTP, loads it in a headless
 // browser, and asserts the M1 core, by hook and by eye:
 //   - the menu renders over a LIVE 3D scene (the attract demo
@@ -135,8 +135,8 @@ try {
   }
 
   const version = await page.evaluate(() => window.__apex.version);
-  if (version !== '0.1.0') throw new Error(`expected version 0.1.0, got ${version}`);
-  console.log('render-check: game module initialised, version 0.1.0');
+  if (version !== '0.2.0') throw new Error(`expected version 0.2.0, got ${version}`);
+  console.log('render-check: game module initialised, version 0.2.0');
 
   // WebGL context exists and the canvas is on screen.
   const gl = await page.evaluate(() => {
@@ -148,19 +148,19 @@ try {
   if (!gl) throw new Error('no WebGL context on the game canvas');
   console.log(`render-check: WebGL context live (${gl.width}x${gl.height} canvas)`);
 
-  // The menu: title, one primary Play, 6 track cards, NO version/engine
+  // The menu: title, one primary Play, 12 track cards, NO version/engine
   // text anywhere the player can see. Track 1 unlocked, track 2 locked.
   const menuText = await page.textContent('#menu');
   if (!menuText.includes('NEON APEX')) throw new Error('menu title missing');
-  if (menuText.includes('v0.1.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
+  if (menuText.includes('v0.2.0') || menuText.includes('Three.js') || menuText.includes('0.160.0')) {
     throw new Error('menu shows version/engine text — it must live in the README only');
   }
   const playClass = await page.getAttribute('#btn-play', 'class');
   if (!playClass || !playClass.includes('primary')) throw new Error('Play is not the primary action');
   const trackCards = await page.locator('#track-select .track-card').count();
-  if (trackCards !== 6) throw new Error(`expected 6 track cards, got ${trackCards}`);
+  if (trackCards !== 12) throw new Error(`expected 12 track cards, got ${trackCards}`);
   const tracks = await page.evaluate(() => window.__apex.tracks());
-  if (tracks.length !== 6 || tracks[0].name !== 'First Steps' || tracks[5].name !== 'Apex Run') {
+  if (tracks.length !== 12 || tracks[0].name !== 'First Steps' || tracks[11].name !== 'Apex Prime') {
     throw new Error(`track list wrong: ${JSON.stringify(tracks.map((t) => t.name))}`);
   }
   const unlocks0 = await page.evaluate(() => window.__apex.unlocks());
@@ -168,8 +168,8 @@ try {
     throw new Error(`fresh save should unlock only track 1: ${JSON.stringify(unlocks0)}`);
   }
   const lockedCards = await page.locator('#track-select .track-card.locked').count();
-  if (lockedCards !== 5) throw new Error(`expected 5 locked track cards on a fresh save, got ${lockedCards}`);
-  console.log('render-check: menu renders — live 3D behind it, no version text, Play primary, 6 tracks, track 1 unlocked only');
+  if (lockedCards !== 11) throw new Error(`expected 11 locked track cards on a fresh save, got ${lockedCards}`);
+  console.log('render-check: menu renders — live 3D behind it, no version text, Play primary, 12 tracks, track 1 unlocked only');
 
   // The attract demo runs behind the menu: the demo runner advances.
   const demo0 = await page.evaluate(() => window.__apex.info());

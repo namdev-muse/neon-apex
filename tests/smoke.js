@@ -1,4 +1,4 @@
-// Neon Apex v0.1.0 — Node smoke tests for physics.js (no DOM, no Three.js).
+// Neon Apex v0.2.0 — Node smoke tests for physics.js (no DOM, no Three.js).
 import {
   VERSION, TRACKS, trackById, trackGaps, trackThreat, singleJumpDist, doubleJumpDist,
   LANES, DT, GRAVITY, JUMP_VEL, DOUBLE_JUMP_VEL, SLIDE_TIME, VOID_Y,
@@ -17,14 +17,15 @@ function check(name, cond) {
 }
 function approx(a, b, eps = 1e-9) { return Math.abs(a - b) <= eps; }
 
-check('physics version is 0.1.0', VERSION === '0.1.0');
-check('6 tracks defined', TRACKS.length === 6);
-check('track ids are 1..6 in order', TRACKS.every((t, i) => t.id === i + 1));
+check('physics version is 0.2.0', VERSION === '0.2.0');
+check('12 tracks defined', TRACKS.length === 12);
+check('track ids are 1..12 in order', TRACKS.every((t, i) => t.id === i + 1));
 check('every track has a name and a hint', TRACKS.every((t) => t.name && t.hint));
-check('every track has a distinct accent', new Set(TRACKS.map((t) => t.accent)).size === 6);
+check('every track has a distinct accent', new Set(TRACKS.map((t) => t.accent)).size === 12);
 check('trackById finds track 1', trackById(1) && trackById(1).name === 'First Steps');
 check('trackById finds track 4', trackById(4) && trackById(4).name === 'Skyline Sprint');
 check('trackById finds track 6', trackById(6) && trackById(6).name === 'Apex Run');
+check('trackById finds track 12', trackById(12) && trackById(12).name === 'Apex Prime');
 check('trackById returns null for unknown id', trackById(99) === null);
 check('every track has 10+ platforms', TRACKS.every((t) => t.platforms.length >= 10));
 check('every track is dense (190+ units long)', TRACKS.every((t) => t.length >= 190));
