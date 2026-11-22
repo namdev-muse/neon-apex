@@ -1,4 +1,4 @@
-// Neon Apex v0.3.1 — pure simulation core (no DOM, no Three.js).
+// Neon Apex v0.4.0 — pure simulation core (no DOM, no Three.js).
 // A 3D neon sky-parkour runner: the runner auto-sprints forward along
 // a track of floating neon platforms (forward = +s; game.js maps s to
 // world -z). The player jumps (Space / W / Up, double-jump in air),
@@ -15,8 +15,12 @@
 // the same stepRun + public input hooks and must jump/slide/switch
 // lanes with real timing decisions; a bot that jumps at random dies
 // on every track (see simulateRun + the bot harness).
+//
+// M4 — progression & depth: Time Attack mode (orbs fuel the clock),
+// medals (best-time gates), jump orbs pay double (risk/reward),
+// lifetime orb bank.
 
-export const VERSION = '0.3.1';
+export const VERSION = '0.4.0';
 export const LANES = [-2.4, 0, 2.4];
 export const LANE_COUNT = 3;
 export const DT = 1 / 60;
@@ -35,6 +39,33 @@ export const WALL_HEIGHT = 3.0; // full walls cannot be jumped (apex 2.2)
 export const OVER_BOTTOM = 1.0; // overhead barrier hangs from y=1.0 to y=3.0: slide under it, never jump it
 export const OVER_TOP = 3.0;
 export const ORB_SCORE = 50;
+export const ORB_SCORE_JUMP = 100; // jump orbs (y=1.8) hang over
+// gaps and cost a jump to reach — the risk pays double.
+// Time Attack (M4): the clock starts short and orbs are the fuel.
+// Ground orbs buy 1.5s, jump orbs 2.5s (riskier = more time),
+// checkpoints buy 2s, a death costs 3s off the clock on top of
+// the seconds the re-run takes. The budget is 60% of par: a run
+// that ignores orbs runs dry before the finish on the orb-sparse
+// tracks (see the bot harness), a run that chases them clears with
+// a small margin. The perfect-landing speed chain saves clock too
+// — fast, clean running is the other fuel.
+export const TA_ORB_TIME = 1.5;
+export const TA_JUMP_ORB_TIME = 2.5;
+export const TA_CHECKPOINT_TIME = 2;
+export const TA_DEATH_PENALTY = 3;
+export const TA_BUDGET_MUL = 0.6;
+export function taBudget(track) { return Math.ceil(track.par * TA_BUDGET_MUL); }
+// Medals (M4 best-time gates): gold means beating par — a genuinely
+// fast run, not just a clear. Silver is within 5s of par, bronze is
+// any clear. The medal is stored on the best record and shown on
+// the track card and the clear screen.
+export function medalFor(time, par) {
+  if (time <= par) return 'gold';
+  if (time <= par + 5) return 'silver';
+  return 'bronze';
+}
+export function orbScore(orb) { return orb.y >= 1 ? ORB_SCORE_JUMP : ORB_SCORE; }
+export function orbTime(orb) { return orb.y >= 1 ? TA_JUMP_ORB_TIME : TA_ORB_TIME; }
 export const PERFECT_BASE = 50;
 export const PERFECT_STEP = 50; // +50 per chain link on a perfect landing
 export const CHECKPOINT_SCORE = 25;
@@ -656,7 +687,11 @@ export function trackThreat(track) {
 
 // --- save / best times ---
 export function defaultSave() {
-  return { version: SAVE_VERSION, best: {}, settings: { volume: 0.6, shake: 1, music: true, sfx: true, reduceFlashing: false, textSize: 1, highContrast: false, muted: false } };
+  return {
+    version: SAVE_VERSION,
+    best: {}, bestTA: {}, totalOrbs: 0,
+    settings: { volume: 0.6, shake: 1, music: true, sfx: true, reduceFlashing: false, textSize: 1, highContrast: false, muted: false },
+  };
 }
 export function serializeSave(save) { return JSON.stringify(save); }
 export function parseSave(text) {
@@ -664,17 +699,37 @@ export function parseSave(text) {
     const s = JSON.parse(text);
     if (!s || typeof s !== 'object' || s.version !== SAVE_VERSION) return defaultSave();
     const d = defaultSave();
-    return { version: SAVE_VERSION, best: { ...(s.best || {}) }, settings: { ...d.settings, ...(s.settings || {}) } };
+    return {
+      version: SAVE_VERSION,
+      best: { ...(s.best || {}) },
+      bestTA: { ...(s.bestTA || {}) },
+      totalOrbs: typeof s.totalOrbs === 'number' ? s.totalOrbs : 0,
+      settings: { ...d.settings, ...(s.settings || {}) },
+    };
   } catch { return defaultSave(); }
 }
-// best[trackId] = { time, score, orbs, deaths } — best time wins;
-// a tie on time keeps the higher score.
-export function recordBest(best, trackId, result) {
+// best[trackId] = { time, score, orbs, deaths, medal } — best time wins;
+// a tie on time keeps the higher score. The medal is derived from the
+// best time against par, so a stored best always carries its medal.
+export function recordBest(best, trackId, result, par) {
   const prev = best ? best[trackId] : null;
   if (!prev || result.time < prev.time || (result.time === prev.time && result.score > prev.score)) {
-    return { ...best, [trackId]: { time: result.time, score: result.score, orbs: result.orbs, deaths: result.deaths } };
+    const entry = { time: result.time, score: result.score, orbs: result.orbs, deaths: result.deaths };
+    if (par !== undefined && par !== null) entry.medal = medalFor(result.time, par);
+    else if (prev && prev.medal) entry.medal = prev.medal;
+    return { ...best, [trackId]: entry };
   }
   return best;
+}
+// bestTA[trackId] = { time, score, orbs, deaths } — fastest Time
+// Attack clear wins (time is the elapsed run time; the clock left
+// at the finish is banked into the score as a bonus).
+export function recordBestTA(bestTA, trackId, result) {
+  const prev = bestTA ? bestTA[trackId] : null;
+  if (!prev || result.time < prev.time || (result.time === prev.time && result.score > prev.score)) {
+    return { ...bestTA, [trackId]: { time: result.time, score: result.score, orbs: result.orbs, deaths: result.deaths } };
+  }
+  return bestTA;
 }
 export function isTrackUnlocked(best, id) {
   if (id <= 1) return true;
@@ -686,8 +741,15 @@ export function isTrackUnlocked(best, id) {
 // Run state
 // ---------------------------------------------------------------------
 export function createRun(track, opts = {}) {
+  const mode = opts.mode === 'ta' ? 'ta' : 'normal';
   const run = {
     track,
+    mode,
+    // Time Attack clock: counts DOWN from the budget; orbs and
+    // checkpoints add time back, deaths take it away. Normal mode
+    // leaves it null — the HUD shows elapsed time instead.
+    clock: mode === 'ta' ? taBudget(track) : null,
+    timeUp: false,
     s: 2, x: 0, y: 0, vy: 0,
     lane: 0, // lane index -1, 0, 1
     laneTarget: 0,
@@ -730,7 +792,14 @@ function die(run, cause) {
   run.deaths++;
   run.deathCause = cause;
   run.chain = 0;
-  run.time += DEATH_TIME_PENALTY;
+  if (run.mode === 'ta') {
+    // In Time Attack the clock IS the penalty: -3s off the clock,
+    // and the re-run costs real seconds too. (Normal mode adds
+    // +2s to the elapsed time instead — see below.)
+    run.clock -= TA_DEATH_PENALTY;
+  } else {
+    run.time += DEATH_TIME_PENALTY;
+  }
   pushEvent(run, 'death', { cause });
   // Reset to the last checkpoint (or the start line).
   run.s = run.respawn.s;
@@ -752,6 +821,20 @@ export function stepRun(run, input, dt = DT) {
   const track = run.track;
   run.time += dt;
   if (run.grace > 0) run.grace -= dt;
+
+  // --- Time Attack clock: ticks down with real time. At zero the
+  // run is over — no checkpoint save, no finish, however close the
+  // gate was. Orbs, checkpoints and deaths move the clock (below).
+  if (run.mode === 'ta') {
+    run.clock -= dt;
+    if (run.clock <= 0) {
+      run.clock = 0;
+      run.done = true;
+      run.timeUp = true;
+      pushEvent(run, 'timeUp', { time: run.time });
+      return run;
+    }
+  }
 
   // --- lane switching (air control allowed; x eases toward the lane) ---
   if (input.lane !== null && input.lane !== undefined && input.lane !== run.laneTarget) {
@@ -875,8 +958,17 @@ export function stepRun(run, input, dt = DT) {
     if (Math.abs(run.y - o.y) > 1.3) continue;
     run.orbsTaken.add(o);
     run.orbs++;
-    run.score += ORB_SCORE;
-    pushEvent(run, 'orb', { lane: o.lane });
+    const pts = orbScore(o);
+    run.score += pts;
+    // In Time Attack an orb is time, not just points: the clock
+    // gains orbTime(o) seconds. The event carries both so the HUD
+    // can pop "+100" in normal mode and "+2.5s" in Time Attack.
+    let timeAdded = 0;
+    if (run.mode === 'ta') {
+      timeAdded = orbTime(o);
+      run.clock += timeAdded;
+    }
+    pushEvent(run, 'orb', { lane: o.lane, points: pts, timeAdded });
   }
 
   // --- checkpoints ---
@@ -886,7 +978,12 @@ export function stepRun(run, input, dt = DT) {
       run.checkpointIndex = i;
       run.respawn = { s: cp.s, lane: run.lane };
       run.score += CHECKPOINT_SCORE;
-      pushEvent(run, 'checkpoint', { index: i });
+      let timeAdded = 0;
+      if (run.mode === 'ta') {
+        timeAdded = TA_CHECKPOINT_TIME;
+        run.clock += timeAdded;
+      }
+      pushEvent(run, 'checkpoint', { index: i, timeAdded });
     }
   }
 
@@ -894,9 +991,14 @@ export function stepRun(run, input, dt = DT) {
   if (run.s >= track.finishS) {
     run.done = true;
     run.completed = true;
-    const timeBonus = Math.max(0, Math.round((track.par - run.time) * 25));
+    // Normal mode banks the time under par; Time Attack banks the
+    // clock left — a fast, orb-rich run leaves seconds on the
+    // clock and they are worth 25 points each.
+    const timeBonus = run.mode === 'ta'
+      ? Math.round(run.clock * 25)
+      : Math.max(0, Math.round((track.par - run.time) * 25));
     run.score += timeBonus;
-    pushEvent(run, 'finish', { time: run.time, timeBonus });
+    pushEvent(run, 'finish', { time: run.time, timeBonus, clockLeft: run.mode === 'ta' ? run.clock : null });
   }
   return run;
 }
@@ -950,7 +1052,7 @@ function laneHasOverAhead(track, run, lane, dist) {
   return track.barriers.some((b) => b.kind === 'over' && b.lane === lane && b.s > run.s && b.s - run.s < dist);
 }
 
-export function decisionPolicy(track, run) {
+export function decisionPolicy(track, run, opts = {}) {
   const speed = run.speed;
   const cur = platformContainingS(track, run.s);
   const gaps = trackGaps(track);
@@ -1018,7 +1120,10 @@ export function decisionPolicy(track, run) {
   }
 
   // --- 3. orbs: steer toward a safe orb line when nothing urgent ---
-  if (wallLane === null && cur && nextPlat) {
+  // opts.ignoreOrbs (the bot harness's orb-blind bot) skips this
+  // and the orb-jump below: in Time Attack that bot must run dry,
+  // proving the clock is fuelled by orbs and not by the budget.
+  if (!opts.ignoreOrbs && wallLane === null && cur && nextPlat) {
     const distToEdge = cur.s1 - run.s;
     if (distToEdge > speed * 0.9) {
       for (const o of track.orbs) {
@@ -1063,7 +1168,7 @@ export function decisionPolicy(track, run) {
 
   // --- orb jumps: a jump-orb in our lane is worth a hop, when
   // there is landing room and no gap or hazard imminent ---
-  if (!jump && run.grounded && cur) {
+  if (!opts.ignoreOrbs && !jump && run.grounded && cur) {
     for (const o of track.orbs) {
       if (run.orbsTaken.has(o) || o.y < 1) continue;
       if (o.lane !== run.laneTarget) continue;
@@ -1107,6 +1212,10 @@ export function decisionPolicy(track, run) {
 
 // Run a whole track with a policy. Returns a summary; `policy` is
 // either a function (run, track) => input or a factory returning one.
+// opts.mode 'ta' runs a Time Attack (orbs fuel the clock); opts may
+// also carry maxTime / maxDeaths. A policy factory that takes
+// (track, run, opts) receives the run opts so a TA-aware bot can
+// chase orbs harder.
 export function simulateRun(track, policy, opts = {}) {
   const run = startRun(track, opts);
   const makePolicy = typeof policy === 'function' && policy.length <= 1
@@ -1115,7 +1224,7 @@ export function simulateRun(track, policy, opts = {}) {
   if (typeof policy === 'function') {
     // decisionPolicy takes (track, run); randomPolicy/noInput take ().
     stepPolicy = policy.length >= 2
-      ? () => policy(track, run)
+      ? () => policy(track, run, opts)
       : policy;
   } else {
     stepPolicy = () => ({ jump: false, slide: false, lane: null });
@@ -1130,6 +1239,9 @@ export function simulateRun(track, policy, opts = {}) {
   }
   return {
     completed: run.completed,
+    timeUp: run.timeUp,
+    mode: run.mode,
+    clock: run.clock,
     time: run.time,
     score: run.score,
     orbs: run.orbs,

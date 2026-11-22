@@ -1,4 +1,4 @@
-/* Neon Apex v0.3.1 — neon sky-parkour runner UI. Reference 1920x1080,
+/* Neon Apex v0.4.0 — neon sky-parkour runner UI. Reference 1920x1080,
    expand scaling; anchors + containers, no absolute-pixel layout;
    safe-area insets; overshoot pops on every panel and button. */
 :root {
@@ -111,6 +111,28 @@ h3 { color: var(--gold); margin: 1em 0 0.3em; letter-spacing: 0.06em; }
 .menu-best { color: var(--gold); margin: 0.5em 0 0; font-size: 0.95rem; min-height: 1.2em; }
 .set-hint { color: var(--muted); font-size: 0.95rem; margin: 0.7em 0 0; min-height: 2.4em; }
 
+/* --- mode toggle (Normal / Time Attack) --- */
+.mode-toggle { display: flex; gap: 8px; margin-bottom: 2px; }
+.mode-btn {
+  flex: 1; padding: 0.6em 0.8em; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--muted); background: rgba(34, 211, 238, 0.06);
+  border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.mode-btn:hover, .mode-btn:focus-visible { transform: scale(1.03); background: rgba(34, 211, 238, 0.16); color: var(--ink); outline: none; }
+.mode-btn:focus-visible { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }
+.mode-btn:active { transform: scale(0.97); }
+.mode-btn.active {
+  color: #04121a; background: linear-gradient(180deg, #22d3ee, #0891b2);
+  border-color: #67e8f9; box-shadow: 0 0 16px rgba(34, 211, 238, 0.45);
+}
+
+/* --- medals --- */
+.medal { font-weight: 800; letter-spacing: 0.03em; }
+.medal.gold { color: var(--gold); text-shadow: 0 0 10px rgba(251, 191, 36, 0.7); }
+.medal.silver { color: #d7e9ff; text-shadow: 0 0 10px rgba(215, 233, 255, 0.6); }
+.medal.bronze { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.6); }
+
 /* --- track cards --- */
 .track-select { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .track-card {
@@ -148,6 +170,12 @@ h3 { color: var(--gold); margin: 1em 0 0.3em; letter-spacing: 0.06em; }
 .hud-mid { align-items: center; }
 .hud-right { align-items: flex-end; flex-direction: row !important; gap: 8px !important; pointer-events: auto; }
 #hud-score { font-weight: 800; font-size: 1.15em; color: var(--cyan); }
+/* Time Attack countdown under 5s: red, pulsing — the pressure reads. */
+#hud-time.low { color: var(--danger); font-weight: 800; animation: clock-pulse 0.5s ease-in-out infinite alternate; }
+@keyframes clock-pulse {
+  from { text-shadow: 0 0 6px rgba(251, 113, 133, 0.5); }
+  to { text-shadow: 0 0 18px rgba(251, 113, 133, 1); }
+}
 .hud-chain { color: var(--gold); font-weight: 800; }
 .hud-chain.hot { color: var(--magenta); text-shadow: 0 0 12px rgba(244, 114, 182, 0.8); }
 .hud-best { color: var(--muted); font-size: 0.9em; }

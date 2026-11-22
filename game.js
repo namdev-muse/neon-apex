@@ -1,4 +1,4 @@
-// Neon Apex v0.3.1 — Three.js presentation layer.
+// Neon Apex v0.4.0 — Three.js presentation layer.
 // The runner auto-sprints forward along floating neon platforms
 // (sim forward = +s, world forward = -z). Jump / double-jump /
 // slide / lane-switch with momentum; perfect landings chain speed;
@@ -13,8 +13,9 @@ import * as THREE from 'three';
 import {
   VERSION, TRACKS, trackById, startRun, stepRun, drainEvents,
   decisionPolicy, platformXAt, LANES, DT,
-  recordBest, isTrackUnlocked, defaultSave, serializeSave, parseSave,
-  FEEDBACK, FEEDBACK_LAYERS,
+  recordBest, recordBestTA, isTrackUnlocked, defaultSave, serializeSave, parseSave,
+  FEEDBACK, FEEDBACK_LAYERS, taBudget, medalFor, orbScore, orbTime,
+  TA_ORB_TIME, TA_JUMP_ORB_TIME, TA_CHECKPOINT_TIME, TA_DEATH_PENALTY,
 } from './physics.js';
 
 const SAVE_KEY = 'neon-apex-save-v1';
@@ -63,13 +64,16 @@ function applySettingsToDom() {
 // State
 // ---------------------------------------------------------------------
 const state = {
-  phase: 'menu', // menu | run | paused | complete
+  phase: 'menu', // menu | run | paused | complete | timeup
   trackId: 1,
   run: null,
   demoRun: null,
   autopilot: false,
   selectedTrack: 1,
   screenStack: ['menu'],
+  // M4: the mode the next run starts in — 'normal' or 'ta'
+  // (Time Attack). Chosen on the menu, never mid-run.
+  mode: 'normal',
 };
 let selectedTrack = 1;
 let trauma = 0;
@@ -639,9 +643,18 @@ function feedback(type, extra = {}) {
   if (layers.includes('squash') && (type === 'land' || type === 'death')) squashT = 0.22;
   if (type === 'land') landDip = 1;
   if (type === 'perfect' && !quiet) spawnPop(`PERFECT x${extra.chain || 1}  +${extra.points || 0}`, 'perfect');
-  if (type === 'orb' && !quiet) spawnPop('+50');
-  if (type === 'checkpoint' && !quiet) showToast('Checkpoint');
-  if (type === 'death' && !quiet) showToast(extra.cause === 'void' ? 'Fell into the void — back to the checkpoint' : extra.cause === 'wall' ? 'Smashed into a wall — back to the checkpoint' : 'Clipped a barrier — back to the checkpoint');
+  // Orbs pop their value: +50/+100 points in normal mode, +1.5s/+2.5s
+  // of clock in Time Attack — the pop is the economy, it must read.
+  if (type === 'orb' && !quiet) {
+    spawnPop(run && run.mode === 'ta' ? `+${(extra.timeAdded || 0).toFixed(1)}s` : `+${extra.points || 50}`);
+  }
+  if (type === 'checkpoint' && !quiet) {
+    showToast(run && run.mode === 'ta' ? `Checkpoint +${TA_CHECKPOINT_TIME}s` : 'Checkpoint');
+  }
+  if (type === 'death' && !quiet) {
+    const base = extra.cause === 'void' ? 'Fell into the void — back to the checkpoint' : extra.cause === 'wall' ? 'Smashed into a wall — back to the checkpoint' : 'Clipped a barrier — back to the checkpoint';
+    showToast(run && run.mode === 'ta' ? `${base} (−${TA_DEATH_PENALTY}s)` : base);
+  }
   if (type === 'finish' && !quiet) showToast('Track clear!');
   if (SFX[type]) SFX[type]();
   if (layers.includes('glowPulse')) runnerBodyMat.emissiveIntensity = 2.4;
@@ -650,7 +663,7 @@ function feedback(type, extra = {}) {
 // ---------------------------------------------------------------------
 // Screen stack
 // ---------------------------------------------------------------------
-const SCREENS = ['menu', 'howto', 'settings', 'complete', 'pause'];
+const SCREENS = ['menu', 'howto', 'settings', 'complete', 'pause', 'timeup'];
 function showOnly(id) {
   for (const s of SCREENS) {
     document.getElementById(s).classList.toggle('hidden', s !== id);
@@ -691,19 +704,34 @@ function fmtTime(t) {
   const s = total - m * 60;
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
+function medalLabel(medal) {
+  if (!medal) return '';
+  return `<span class="medal ${medal}">${medal[0].toUpperCase() + medal.slice(1)}</span> `;
+}
 function buildMenu() {
   const sel = document.getElementById('track-select');
   sel.innerHTML = '';
   TRACKS.forEach((t, i) => {
     const unlocked = isTrackUnlocked(save.best, t.id);
     const best = save.best[t.id];
+    const bestTA = save.bestTA[t.id];
     const card = document.createElement('button');
     card.type = 'button';
     card.className = `track-card${t.id === selectedTrack ? ' selected' : ''}${unlocked ? '' : ' locked'}`;
     card.style.animationDelay = `${i * 0.05}s`;
+    // The best line shows the best for the mode selected on the
+    // menu: a medal + best time in normal mode, the fastest
+    // Time Attack clear in TA mode.
+    let bestLine;
+    if (!unlocked) bestLine = `Clear Track ${t.id - 1} to unlock`;
+    else if (state.mode === 'ta') {
+      bestLine = bestTA ? `TA best ${fmtTime(bestTA.time)} &middot; ${bestTA.score.toLocaleString()} pts` : 'No Time Attack clear yet';
+    } else {
+      bestLine = best ? `${medalLabel(best.medal || medalFor(best.time, t.par))}Best ${fmtTime(best.time)} &middot; ${best.score.toLocaleString()} pts` : 'Not cleared yet';
+    }
     card.innerHTML = `<div class="track-name">Track ${t.id} — ${t.name}</div>`
       + `<div class="track-meta">Par ${fmtTime(t.par)} &middot; ${t.orbCount} orbs &middot; ${t.platforms.length} platforms</div>`
-      + `<div class="track-best">${unlocked ? (best ? `Best ${fmtTime(best.time)} &middot; ${best.score.toLocaleString()} pts` : 'Not cleared yet') : `Clear Track ${t.id - 1} to unlock`}</div>`;
+      + `<div class="track-best">${bestLine}</div>`;
     card.addEventListener('click', () => {
       ensureAudio();
       if (!unlocked) { showToast(`Clear Track ${t.id - 1} first`); return; }
@@ -715,13 +743,39 @@ function buildMenu() {
     card.addEventListener('mouseenter', () => { if (audioCtx) SFX.click(); });
     sel.appendChild(card);
   });
-  const best1 = save.best[selectedTrack];
-  const menuBest = document.getElementById('menu-best');
   const t = trackById(selectedTrack);
-  menuBest.textContent = best1
-    ? `Best on Track ${selectedTrack} (${t.name}): ${fmtTime(best1.time)} — ${best1.score.toLocaleString()} pts`
-    : `Track ${selectedTrack} (${t.name}) — no best yet. Set the pace.`;
+  const menuBest = document.getElementById('menu-best');
+  if (state.mode === 'ta') {
+    const b = save.bestTA[selectedTrack];
+    menuBest.textContent = b
+      ? `Time Attack best on Track ${selectedTrack} (${t.name}): ${fmtTime(b.time)} — ${b.score.toLocaleString()} pts`
+      : `Track ${selectedTrack} (${t.name}) — no Time Attack clear yet. The clock starts at ${fmtTime(taBudget(t))}; orbs buy the time.`;
+  } else {
+    const best1 = save.best[selectedTrack];
+    menuBest.textContent = best1
+      ? `Best on Track ${selectedTrack} (${t.name}): ${fmtTime(best1.time)} — ${best1.score.toLocaleString()} pts`
+      : `Track ${selectedTrack} (${t.name}) — no best yet. Set the pace.`;
+  }
+  const bank = document.getElementById('menu-bank');
+  if (bank) bank.textContent = `Orbs banked: ${(save.totalOrbs || 0).toLocaleString()} — every orb from a cleared track, kept for good.`;
+  updateModeUI();
   updateMenuHint();
+}
+function updateModeUI() {
+  const n = document.getElementById('btn-mode-normal');
+  const ta = document.getElementById('btn-mode-ta');
+  if (n) n.classList.toggle('active', state.mode === 'normal');
+  if (ta) ta.classList.toggle('active', state.mode === 'ta');
+  const hint = document.getElementById('mode-hint');
+  if (hint) {
+    hint.textContent = state.mode === 'ta'
+      ? 'Time Attack: the clock starts short — every orb adds seconds, every checkpoint +2s, every death −3s. Finish before it hits zero.'
+      : 'Normal: clear the track, beat your best time, earn a medal. Gold means beating par.';
+  }
+}
+function setMode(mode) {
+  state.mode = mode === 'ta' ? 'ta' : 'normal';
+  buildMenu();
 }
 function updateMenuHint() {
   const t = trackById(selectedTrack);
@@ -744,13 +798,14 @@ function toggleMute() {
 // ---------------------------------------------------------------------
 // Run control
 // ---------------------------------------------------------------------
-function startTrack(id) {
+function startTrack(id, mode = state.mode) {
   const track = trackById(id);
   if (!track) return;
   ensureAudio();
   state.trackId = id;
   selectedTrack = id;
-  state.run = startRun(track);
+  state.mode = mode === 'ta' ? 'ta' : 'normal';
+  state.run = startRun(track, { mode: state.mode });
   state.autopilot = false;
   state.phase = 'run';
   simAcc = 0;
@@ -759,8 +814,10 @@ function startTrack(id) {
   runnerGroup.visible = true;
   snapCamera = true;
   document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('hud-track').textContent = `Track ${track.id} — ${track.name}`;
-  const best = save.best[id];
+  document.getElementById('hud-track').textContent = state.mode === 'ta'
+    ? `Time Attack — Track ${track.id} — ${track.name}`
+    : `Track ${track.id} — ${track.name}`;
+  const best = state.mode === 'ta' ? save.bestTA[id] : save.best[id];
   document.getElementById('hud-best').textContent = best ? `Best ${fmtTime(best.time)}` : 'Best —';
   resetStackTo(null);
   document.getElementById('menu').classList.add('hidden');
@@ -797,18 +854,40 @@ function restartTrack() {
 function finishRun() {
   const run = state.run;
   const track = run.track;
-  const isBest = !save.best[track.id] || run.time < save.best[track.id].time;
-  save.best = recordBest(save.best, track.id, { time: run.time, score: run.score, orbs: run.orbs, deaths: run.deaths });
+  const ta = run.mode === 'ta';
+  // Orbs bank on a clear — the lifetime bank only grows from
+  // completed runs, so it stays earned, not farmed by dying.
+  save.totalOrbs = (save.totalOrbs || 0) + run.orbs;
+  let isBest;
+  if (ta) {
+    isBest = !save.bestTA[track.id] || run.time < save.bestTA[track.id].time;
+    save.bestTA = recordBestTA(save.bestTA, track.id, { time: run.time, score: run.score, orbs: run.orbs, deaths: run.deaths });
+  } else {
+    isBest = !save.best[track.id] || run.time < save.best[track.id].time;
+    save.best = recordBest(save.best, track.id, { time: run.time, score: run.score, orbs: run.orbs, deaths: run.deaths }, track.par);
+  }
   persistSave();
   state.phase = 'complete';
   state.autopilot = false;
+  const medal = ta ? null : medalFor(run.time, track.par);
   document.getElementById('complete-score').textContent = `Score ${run.score.toLocaleString()}`;
-  document.getElementById('complete-detail').textContent =
-    `Track ${track.id} — ${track.name} cleared in ${fmtTime(run.time)} (par ${fmtTime(track.par)}), ${run.deaths} death${run.deaths === 1 ? '' : 's'}, best chain x${run.maxChain}.`;
+  document.getElementById('complete-detail').textContent = ta
+    ? `Time Attack — Track ${track.id} — ${track.name} cleared in ${fmtTime(run.time)} with ${fmtTime(run.clock)} left on the clock, ${run.deaths} death${run.deaths === 1 ? '' : 's'}, best chain x${run.maxChain}.`
+    : `Track ${track.id} — ${track.name} cleared in ${fmtTime(run.time)} (par ${fmtTime(track.par)}), ${run.deaths} death${run.deaths === 1 ? '' : 's'}, best chain x${run.maxChain}.`;
   document.getElementById('complete-best').textContent = isBest
     ? `New best time for this track!`
-    : `Best for this track: ${fmtTime(save.best[track.id].time)}.`;
-  document.getElementById('complete-orbs').textContent = `Orbs ${run.orbs}/${track.orbCount} · Perfect landings ${run.perfects}`;
+    : `Best for this track: ${fmtTime((ta ? save.bestTA[track.id] : save.best[track.id]).time)}.`;
+  const medalEl = document.getElementById('complete-medal');
+  if (medalEl) {
+    medalEl.textContent = ta
+      ? `Clock bonus banked: ${Math.round(run.clock * 25).toLocaleString()} pts for the time left.`
+      : medal === 'gold'
+        ? `Gold medal — you beat par ${fmtTime(track.par)}!`
+        : medal === 'silver'
+          ? `Silver medal — within 5s of par ${fmtTime(track.par)}. Gold is ${fmtTime(track.par)}.`
+          : `Bronze medal — clear the track in ${fmtTime(track.par)} or better for gold.`;
+  }
+  document.getElementById('complete-orbs').textContent = `Orbs ${run.orbs}/${track.orbCount} · Perfect landings ${run.perfects} · Orbs banked: ${(save.totalOrbs || 0).toLocaleString()}`;
   const next = trackById(track.id + 1);
   const btnNext = document.getElementById('btn-next');
   if (next && isTrackUnlocked(save.best, next.id)) {
@@ -823,6 +902,22 @@ function finishRun() {
   }
   pushScreen('complete');
   document.getElementById('sr-status').textContent = `Track ${track.id} cleared in ${fmtTime(run.time)}`;
+}
+// Time Attack: the clock hit zero before the finish gate. No clear,
+// no banked orbs, no best — the run is over wherever the runner is.
+function showTimeUp() {
+  const run = state.run;
+  const track = run.track;
+  state.phase = 'timeup';
+  state.autopilot = false;
+  document.getElementById('timeup-detail').textContent =
+    `Track ${track.id} — ${track.name}: the clock hit zero at ${fmtTime(run.time)} — ${run.orbs}/${track.orbCount} orbs collected, ${run.deaths} death${run.deaths === 1 ? '' : 's'}.`;
+  const best = save.bestTA[track.id];
+  document.getElementById('timeup-best').textContent = best
+    ? `Time Attack best for this track: ${fmtTime(best.time)}. Chase the orbs — they are the clock.`
+    : 'Chase the orbs — they are the clock. Every orb adds seconds.';
+  pushScreen('timeup');
+  document.getElementById('sr-status').textContent = `Time up on track ${track.id} after ${fmtTime(run.time)}`;
 }
 
 // ---------------------------------------------------------------------
@@ -851,6 +946,7 @@ window.addEventListener('keydown', (e) => {
     const top = state.screenStack[state.screenStack.length - 1];
     if (top === 'howto' || top === 'settings') popScreen();
     else if (top === 'pause') resumeGame();
+    else if (top === 'timeup') quitToMenu();
     return;
   }
   if (k === 'Enter') {
@@ -858,6 +954,7 @@ window.addEventListener('keydown', (e) => {
     if (top === 'pause') { resumeGame(); return; }
     if (top === 'menu') { startTrack(selectedTrack); return; }
     if (top === 'complete') { document.getElementById('btn-next').click(); return; }
+    if (top === 'timeup') { restartTrack(); return; }
   }
   if (state.phase !== 'run') return;
   if (k === 'Space' || k === 'KeyW' || k === 'ArrowUp') doJump();
@@ -904,8 +1001,12 @@ document.getElementById('btn-next').addEventListener('click', () => {
   else startTrack(state.trackId);
 });
 document.getElementById('btn-menu-complete').addEventListener('click', () => { SFX.click(); quitToMenu(); });
+document.getElementById('btn-mode-normal').addEventListener('click', () => { ensureAudio(); SFX.click(); setMode('normal'); });
+document.getElementById('btn-mode-ta').addEventListener('click', () => { ensureAudio(); SFX.click(); setMode('ta'); });
+document.getElementById('btn-timeup-retry').addEventListener('click', () => { SFX.click(); restartTrack(); });
+document.getElementById('btn-timeup-menu').addEventListener('click', () => { SFX.click(); quitToMenu(); });
 // Hover tick on every button.
-for (const b of document.querySelectorAll('.btn, .icon-btn, .track-card')) {
+for (const b of document.querySelectorAll('.btn, .icon-btn, .track-card, .mode-btn')) {
   b.addEventListener('mouseenter', () => { if (audioCtx && !save.settings.muted) SFX.click(); });
 }
 // Settings controls.
@@ -955,12 +1056,12 @@ function handleEvents(run) {
       case 'land': feedback('land'); break;
       case 'perfect': feedback('perfect', { chain: ev.chain, points: ev.points }); break;
       case 'orb': {
-        feedback('orb');
+        feedback('orb', { points: ev.points, timeAdded: ev.timeAdded });
         const om = orbMeshes.find((m) => m.orb === ev.orb || (Math.abs(m.orb.s - ev.s) < 1.5 && m.orb.lane === ev.lane));
         if (om) om.mesh.visible = false;
         break;
       }
-      case 'checkpoint': feedback('checkpoint'); break;
+      case 'checkpoint': feedback('checkpoint', { timeAdded: ev.timeAdded }); break;
       case 'death':
         feedback('death', { cause: ev.cause });
         snapCamera = true;
@@ -983,7 +1084,15 @@ function setHud(id, value) {
 }
 function updateHUD(run) {
   const track = run.track;
-  setHud('hud-time', fmtTime(run.time));
+  // Time Attack shows the countdown, not the elapsed time — and it
+  // turns red under 5s so the pressure reads at a glance.
+  if (run.mode === 'ta') {
+    setHud('hud-time', fmtTime(Math.max(0, run.clock)));
+    document.getElementById('hud-time').classList.toggle('low', run.clock < 5);
+  } else {
+    setHud('hud-time', fmtTime(run.time));
+    document.getElementById('hud-time').classList.remove('low');
+  }
   setHud('hud-score', `Score ${run.score.toLocaleString()}`);
   const chainEl = document.getElementById('hud-chain');
   const chainText = `Chain x${run.chain}`;
@@ -1001,7 +1110,7 @@ function updateHUD(run) {
 // Main loop
 // ---------------------------------------------------------------------
 function activeRun() {
-  if (state.phase === 'run' || state.phase === 'paused' || state.phase === 'complete') return state.run;
+  if (state.phase === 'run' || state.phase === 'paused' || state.phase === 'complete' || state.phase === 'timeup') return state.run;
   return state.demoRun;
 }
 const clock = new THREE.Clock();
@@ -1023,6 +1132,7 @@ function stepActiveRun() {
   stepRun(run, stepInput, DT);
   handleEvents(run);
   if (run.done && run.completed) finishRun();
+  else if (run.done && run.timeUp) showTimeUp();
 }
 
 function animate() {
@@ -1228,15 +1338,21 @@ window.__apex = {
       length: t.length, orbCount: t.orbCount,
       platforms: t.platforms.length, barriers: t.barriers.length,
       best: save.best[t.id] || null,
+      bestTA: save.bestTA[t.id] || null,
+      medal: save.best[t.id] ? (save.best[t.id].medal || medalFor(save.best[t.id].time, t.par)) : null,
+      taBudget: taBudget(t),
       unlocked: isTrackUnlocked(save.best, t.id),
     }));
   },
+  totalOrbs() { return save.totalOrbs || 0; },
+  mode() { return state.mode; },
+  setMode(m) { setMode(m); },
   unlocks() {
     const u = {};
     for (const t of TRACKS) u[t.id] = isTrackUnlocked(save.best, t.id);
     return u;
   },
-  startTrack(id) { startTrack(id); },
+  startTrack(id, mode) { startTrack(id, mode); },
   quitToMenu() { quitToMenu(); },
   restart() { restartTrack(); },
   pause() { pauseGame(); },
@@ -1270,12 +1386,16 @@ window.__apex = {
   // Fire one feedback bundle on demand (test-only: lets the render
   // check assert flash/toast behaviour without staging a death).
   testFeedback(type) { feedback(type); },
+  // Set the Time Attack clock (test-only: lets the render check
+  // reach the time-up screen without playing a whole track).
+  setClock(v) { if (state.run && state.run.mode === 'ta') state.run.clock = v; },
   info() {
     const run = activeRun();
     if (!run) return null;
     const scr = projectToScreen(run.x, run.y + 0.95, -run.s);
     return {
       phase: state.phase,
+      mode: state.mode,
       trackId: state.trackId,
       s: run.s, x: run.x, y: run.y, vy: run.vy,
       speed: run.speed, grounded: run.grounded, sliding: run.sliding,
@@ -1283,6 +1403,8 @@ window.__apex = {
       chain: run.chain, maxChain: run.maxChain, perfects: run.perfects,
       score: run.score, orbs: run.orbs, deaths: run.deaths,
       time: run.time, completed: run.completed, done: run.done,
+      clock: run.clock, timeUp: run.timeUp,
+      totalOrbs: save.totalOrbs || 0,
       checkpoints: run.checkpointIndex + 1,
       screen: scr,
       fov: camera.fov, trauma, timeScale, shakeAmp,

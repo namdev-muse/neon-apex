@@ -7,7 +7,7 @@ speed. One deep core mechanic (jump timing), a real progression loop
 feel on every event.
 
 **Live:** https://namdev-muse.github.io/neon-apex/
-**Version:** 0.3.1 (M3 feel & juice — run-cycle fix)
+**Version:** 0.4.0 (M4 progression & depth — Time Attack, medals, orb economy)
 **Stack:** Three.js 0.160.0 (ES modules, import map, pinned CDN), vanilla
 HTML/CSS/JS, Web Audio API synth SFX + step-sequencer music, no build
 step, static files on GitHub Pages.
@@ -23,9 +23,25 @@ step, static files on GitHub Pages.
   **checkpoint ring** and a fall sends you back there.
 - Fall into the void or hit a barrier → reset to the last checkpoint.
 - Reach the **gold finish gate** to clear the track. Best time is saved
-  per track; clearing a track unlocks the next one.
+  per track; clearing a track unlocks the next one. Beat par for a
+  **gold medal**, within 5 seconds for silver.
+- **Time Attack** (pick it on the menu): the clock starts short — every
+  **orb adds seconds** (ground orbs +1.5s, jump orbs +2.5s), every
+  checkpoint +2s, every death −3s. Finish before it hits zero; the
+  seconds left are banked into your score.
 - **P** pause · **M** mute · **R** restart. Touch: tap to jump, swipe
   down to slide, swipe left/right to switch lanes.
+
+## Orb economy
+
+Orbs are the game's currency of time and the lifetime progression
+number. Ground orbs are worth 50 points; the high jump orbs hang over
+gaps and cost a jump to reach, so they pay **100 points** — and in Time
+Attack they buy **2.5s of clock** against 1.5s for a ground orb. Every
+orb from a cleared track is banked for good (shown on the menu); a run
+that ends in a fall banks nothing. A Time Attack run that ignores orbs
+runs dry before the finish on the orb-sparse tracks — the clock is
+fuelled by orbs, not by the starting budget.
 
 ## Tracks
 
@@ -56,9 +72,9 @@ physics).
 ## Tests
 
 ```sh
-node tests/smoke.js        # 564 physics checks (no DOM)
-node tests/bot.js          # decision bot clears all 12; random bots fail all 12 on 5 lives
-node tests/render-check.js # headless Chromium: menu, screen-space movement, autopilot clears track 1
+node tests/smoke.js        # 592 physics checks (no DOM)
+node tests/bot.js          # decision bot clears all 12; random bots fail all 12 on 5 lives; Time Attack gate (bot clears 12/12, orb-blind runs dry on 5/12)
+node tests/render-check.js # headless Chromium: menu, screen-space movement, autopilot clears track 1, Time Attack clear + time-up path
 node tests/screenshots.js # README captures + 3-resolution size sweep
 ```
 

@@ -54,9 +54,15 @@
       <button id="btn-settings" class="btn" type="button">Settings</button>
       <button id="btn-mute-menu" class="btn small" type="button">Sound: On</button>
       <p id="menu-best" class="menu-best"></p>
+      <p id="menu-bank" class="menu-best"></p>
       <p id="menu-hint" class="menu-best"></p>
     </div>
     <div class="menu-col menu-setup">
+      <div class="mode-toggle" role="group" aria-label="Game mode">
+        <button id="btn-mode-normal" class="mode-btn active" type="button">Normal</button>
+        <button id="btn-mode-ta" class="mode-btn" type="button">Time Attack</button>
+      </div>
+      <p id="mode-hint" class="set-hint"></p>
       <div id="track-select" class="track-select" aria-label="Track select"></div>
       <p id="track-hint" class="set-hint"></p>
     </div>
@@ -75,7 +81,8 @@
       <li>Land <strong>dead-centre</strong> on a platform to chain a <strong>speed multiplier</strong> — the chain is the score.</li>
       <li>Collect <strong>gold orbs</strong> — the high ones only count mid-jump. Touch a <strong>checkpoint ring</strong> and a fall sends you back there, not to the start.</li>
       <li>Fall into the void or hit a barrier and you reset to the last checkpoint. Reach the <strong>gold finish gate</strong> to clear the track.</li>
-      <li>Your <strong>best time</strong> is saved per track — beat it. Clearing a track unlocks the next one.</li>
+      <li>Your <strong>best time</strong> is saved per track — beat it. Clearing a track unlocks the next one. Beat par for a <strong>gold medal</strong>, within 5 seconds for silver.</li>
+      <li><strong>Time Attack</strong> (pick it on the menu): the clock starts short — every <strong>orb adds seconds</strong>, every checkpoint +2s, every death −3s. Finish before it hits zero.</li>
     </ul>
     <h3>Controls</h3>
     <ul class="howto-list">
@@ -130,10 +137,22 @@
     <p id="complete-score" class="big-score">Score 0</p>
     <p id="complete-detail"></p>
     <p id="complete-best" class="complete-best"></p>
+    <p id="complete-medal" class="complete-best"></p>
     <p id="complete-orbs" class="complete-best"></p>
     <button id="btn-next" class="btn primary" type="button">Next Track</button>
     <button id="btn-replay" class="btn" type="button">Play Again</button>
     <button id="btn-menu-complete" class="btn" type="button">Main Menu</button>
+  </div>
+</div>
+
+<!-- Time Attack — clock ran out -->
+<div id="timeup" class="overlay hidden">
+  <div class="panel">
+    <h2>Time Up</h2>
+    <p id="timeup-detail" class="big-score"></p>
+    <p id="timeup-best" class="complete-best"></p>
+    <button id="btn-timeup-retry" class="btn primary" type="button">Retry Track</button>
+    <button id="btn-timeup-menu" class="btn" type="button">Main Menu</button>
   </div>
 </div>
 
